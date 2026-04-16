@@ -13,6 +13,8 @@ from isaaclab.devices.openxr.openxr_device import OpenXRDeviceCfg
 from isaaclab.devices.openxr.retargeters import GripperRetargeterCfg, Se3RelRetargeterCfg
 from isaaclab.devices.spacemouse import Se3SpaceMouseCfg
 from isaaclab.envs.mdp.actions.rmpflow_actions_cfg import RMPFlowActionCfg
+from isaaclab.managers import ObservationTermCfg as ObsTerm
+from isaaclab.managers import SceneEntityCfg
 from isaaclab.sensors import CameraCfg, FrameTransformerCfg
 from isaaclab.sensors.frame_transformer.frame_transformer_cfg import OffsetCfg
 from isaaclab.utils import configclass
@@ -169,6 +171,24 @@ class RmpFlowGalbotRightArmCubeStackEnvCfg(stack_joint_pos_env_cfg.GalbotRightAr
         )
 
 
+@configclass
+class GalbotVisuomotorPolicyObsCfg(stack_joint_pos_env_cfg.ObservationGalbotLeftArmGripperCfg.PolicyCfg):
+    """Policy observations including RGB from ego + wrist cameras (for record_demos / HDF5)."""
+
+    ego_cam = ObsTerm(
+        func=mdp.image,
+        params={"sensor_cfg": SceneEntityCfg("ego_cam"), "data_type": "rgb", "normalize": False},
+    )
+    left_wrist_cam = ObsTerm(
+        func=mdp.image,
+        params={"sensor_cfg": SceneEntityCfg("left_wrist_cam"), "data_type": "rgb", "normalize": False},
+    )
+    right_wrist_cam = ObsTerm(
+        func=mdp.image,
+        params={"sensor_cfg": SceneEntityCfg("right_wrist_cam"), "data_type": "rgb", "normalize": False},
+    )
+
+
 ##
 # Visuomotor Env for Record, Generate and Replay (in Task Space)
 ##
@@ -275,6 +295,9 @@ class RmpFlowGalbotLeftArmCubeStackVisuomotorEnvCfg(RmpFlowGalbotLeftArmCubeStac
 
         # List of image observations in policy observations
         self.image_obs_list = ["ego_cam", "left_wrist_cam", "right_wrist_cam"]
+
+        # Include the same cameras in `policy` so record_demos (PreStepFlatPolicyObservationsRecorder) writes RGB to HDF5.
+        self.observations.policy = GalbotVisuomotorPolicyObsCfg()
 
 
 ##

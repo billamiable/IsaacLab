@@ -11,8 +11,8 @@
 | npm | v11.6.2 |
 | Dockerfile | `Dockerfile.2.3.2` |
 | 镜像 Tag | `isaac-lab-teleop:2.3.2` |
-| 文档内任务 | 任务一：`Isaac-PickPlace-GR1T2-Abs-v0`；任务二：`Isaac-Stack-Cube-Galbot-Left-Arm-Gripper-Visuomotor-v0` |
-| 遥操设备 | handtracking (Pico 4 Ultra) |
+| 文档内任务 | 任务一：`Isaac-PickPlace-GR1T2-Abs-v0`；任务二：`Isaac-Stack-Cube-Galbot-Left-Arm-Gripper-Visuomotor-v0`；任务三：`Isaac-Stack-Cube-Franka-IK-Abs-v0`（motion controllers） |
+| 遥操设备 | handtracking / **`motion_controllers`**（右手柄位姿 + 扳机夹爪；详见任务三）(Pico 4 Ultra) |
 
 ---
 
@@ -215,6 +215,7 @@ docker exec -it isaac-lab-232 /bin/bash
 
 - **任务一（GR1 PickPlace）**：`record_demos` 示例带 `--headless`（该任务默认不录相机观测时可常用）。若出现与 **2.3** 类似的 XR /渲染报错，可去掉 `--headless` 改走 GUI。
 - **任务二（Galbot Visuomotor）**：需 **`--enable_cameras`** 写入图像，**不要**加 `--headless`（见 **2.3**）。
+- **任务三（Franka IK Abs + motion controllers）**：与任务一类似走 **`--headless`** 即可；无需 `--enable_pinocchio`（微分 IK）。
 
 以下命令均在容器内 `/workspace/isaaclab` 执行（`./isaaclab.sh`）。
 
@@ -280,6 +281,29 @@ USE_RELATIVE_MODE=true ./isaaclab.sh -p scripts/tools/record_demos.py \
 
 通过 Pico 4 Ultra 连接 CloudXR 后即可手部追踪遥操作；**原始录制**落在容器内 `./datasets/*.hdf5`。需要 MP4 时可在容器内再跑 **9.2** 的脚本，输出到例如 `./videos_for_cosmos/`。
 
+### 任务三：`Isaac-Stack-Cube-Franka-IK-Abs-v0`（右手柄 + 扳机夹爪）
+
+[yujie-dev](https://github.com/billamiable/IsaacLab/tree/yujie-dev) 在 **`stack_ik_abs_env_cfg`** 中增加了与 Isaac Lab 3 / IsaacTeleop **语义对齐** 的 **`motion_controllers`** 设备：`OpenXRDeviceCfg` + 右手控制器绝对位姿（Se3Abs）+ **扳机优先、手部 pinch 兜底** 的夹爪逻辑（无需 Pink / `--enable_pinocchio`）。同一任务仍保留 **`handtracking`** 设备键。
+
+| 项目 | 说明 |
+|------|------|
+| 手柄 | **右手**（`CONTROLLER_RIGHT`）驱动末端绝对位姿 |
+| 夹爪 | **右手扳机（trigger）**：按下超过默认阈值（0.5）闭合；未超过张开；无手柄数据时退化为右手 pinch |
+| 叠加方块顺序 | 底层蓝 `cube_1`、中层红 `cube_2`、顶层绿 `cube_3`（成功判定按实体名，非颜色分类算法） |
+
+#### 录制 HDF5（motion controllers）
+
+```bash
+./isaaclab.sh -p scripts/tools/record_demos.py \
+  --task Isaac-Stack-Cube-Franka-IK-Abs-v0 \
+  --teleop_device motion_controllers \
+  --info \
+  --headless \
+  --dataset_file ./datasets/franka_stack_cube_ik_abs_motion_controllers.hdf5 \
+  --num_demos 0 \
+  --num_success_steps 10
+```
+
 ---
 
 ## 7. 导出录制数据
@@ -323,7 +347,7 @@ Pico 4 Ultra: 浏览器访问 https://<服务器IP> → 连接 CloudXR → 手�
 
 | 类型 | 来源 | 典型位置（容器内） | 说明 |
 |------|------|-------------------|------|
-| **HDF5** | `record_demos.py` | `./datasets/*.hdf5` | 主数据：轨迹、状态、观测；任务二含 RGB 帧 |
+| **HDF5** | `record_demos.py` | `./datasets/*.hdf5` | 主数据：轨迹、状态、观测；任务二含 RGB 帧；任务三与任务一类似以状态/向量观测为主（默认无 Visuomotor 相机键） |
 | **MP4** | `scripts/tools/hdf5_to_mp4.py` | `./videos_for_cosmos/`（目录可自定） | 从 HDF5 的 `obs/<相机键>` 导出，每条 demo、每个相机一个文件 |
 
 HDF5 内 demo 路径均为 `data/demo_0`、`data/demo_1`、…。

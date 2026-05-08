@@ -24,5 +24,13 @@ from .humanoid.unitree.trihand.g1_upper_body_retargeter import (
     G1TriHandUpperBodyRetargeterCfg,
 )
 from .manipulator.gripper_retargeter import GripperRetargeter, GripperRetargeterCfg
+from .manipulator.gripper_trigger_or_pinch_retargeter import (
+    GripperTriggerOrPinchRetargeter,
+    GripperTriggerOrPinchRetargeterCfg,
+)
+from .manipulator.se3_abs_motion_controller_retargeter import (
+    Se3AbsMotionControllerRetargeter,
+    Se3AbsMotionControllerRetargeterCfg,
+)
 from .manipulator.se3_abs_retargeter import Se3AbsRetargeter, Se3AbsRetargeterCfg
 from .manipulator.se3_rel_retargeter import Se3RelRetargeter, Se3RelRetargeterCfg

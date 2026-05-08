@@ -7,6 +7,12 @@ from isaaclab.controllers.differential_ik_cfg import DifferentialIKControllerCfg
 from isaaclab.devices.device_base import DeviceBase, DevicesCfg
 from isaaclab.devices.openxr.openxr_device import OpenXRDeviceCfg
 from isaaclab.devices.openxr.retargeters.manipulator.gripper_retargeter import GripperRetargeterCfg
+from isaaclab.devices.openxr.retargeters.manipulator.gripper_trigger_or_pinch_retargeter import (
+    GripperTriggerOrPinchRetargeterCfg,
+)
+from isaaclab.devices.openxr.retargeters.manipulator.se3_abs_motion_controller_retargeter import (
+    Se3AbsMotionControllerRetargeterCfg,
+)
 from isaaclab.devices.openxr.retargeters.manipulator.se3_abs_retargeter import Se3AbsRetargeterCfg
 from isaaclab.envs.mdp.actions.actions_cfg import DifferentialInverseKinematicsActionCfg
 from isaaclab.utils import configclass
@@ -50,6 +56,30 @@ class FrankaCubeStackEnvCfg(stack_joint_pos_env_cfg.FrankaCubeStackEnvCfg):
                         ),
                         GripperRetargeterCfg(
                             bound_hand=DeviceBase.TrackingTarget.HAND_RIGHT, sim_device=self.sim.device
+                        ),
+                    ],
+                    sim_device=self.sim.device,
+                    xr_cfg=self.xr,
+                ),
+                # Controller EE + trigger-or-pinch gripper: semantic backport of Isaac Lab 3
+                # ``stack_ik_abs_env_cfg._build_franka_stack_pipeline`` + ``IsaacTeleopCfg`` (no teleop_devices key there;
+                # IL3 ``record_demos`` ignores --teleop_device when isaac_teleop is set). Device key matches IL2
+                # ``locomanipulation_g1_env_cfg.motion_controllers``.
+                "motion_controllers": OpenXRDeviceCfg(
+                    retargeters=[
+                        Se3AbsMotionControllerRetargeterCfg(
+                            bound_controller=DeviceBase.TrackingTarget.CONTROLLER_RIGHT,
+                            zero_out_xy_rotation=False,
+                            target_offset_roll_deg=90.0,
+                            target_offset_pitch_deg=0.0,
+                            target_offset_yaw_deg=0.0,
+                            sim_device=self.sim.device,
+                        ),
+                        GripperTriggerOrPinchRetargeterCfg(
+                            bound_hand=DeviceBase.TrackingTarget.HAND_RIGHT,
+                            bound_controller=DeviceBase.TrackingTarget.CONTROLLER_RIGHT,
+                            controller_threshold=0.5,
+                            sim_device=self.sim.device,
                         ),
                     ],
                     sim_device=self.sim.device,

@@ -1,0 +1,477 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pico Motion Controller 控制 G1 1DOF Gripper 的 Teleop 与 Headless 验证方案</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7f8fa;
+      --panel: #ffffff;
+      --text: #20242a;
+      --muted: #5f6b7a;
+      --line: #d8dee8;
+      --accent: #2266cc;
+      --accent-soft: #e8f0ff;
+      --ok: #177245;
+      --warn: #a45c00;
+      --code: #f1f4f8;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.65;
+    }
+
+    main {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 40px 24px 64px;
+    }
+
+    header {
+      margin-bottom: 28px;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 24px;
+    }
+
+    h1 {
+      margin: 0 0 12px;
+      font-size: 30px;
+      line-height: 1.25;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin: 34px 0 14px;
+      font-size: 22px;
+      line-height: 1.35;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin: 24px 0 10px;
+      font-size: 18px;
+      line-height: 1.35;
+      letter-spacing: 0;
+    }
+
+    p {
+      margin: 10px 0;
+    }
+
+    .summary {
+      max-width: 920px;
+      color: var(--muted);
+      font-size: 16px;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 18px 20px;
+      margin: 16px 0;
+    }
+
+    .status-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 12px;
+      margin-top: 16px;
+    }
+
+    .status {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px 16px;
+    }
+
+    .status strong {
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    .tag {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 2px 9px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .ok {
+      color: var(--ok);
+      font-weight: 600;
+    }
+
+    .warn {
+      color: var(--warn);
+      font-weight: 600;
+    }
+
+    code {
+      background: var(--code);
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 0.95em;
+    }
+
+    pre {
+      background: #17202a;
+      color: #eef5ff;
+      border-radius: 8px;
+      padding: 14px 16px;
+      overflow-x: auto;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    pre code {
+      background: transparent;
+      padding: 0;
+      color: inherit;
+    }
+
+    ul,
+    ol {
+      margin: 8px 0 12px 24px;
+      padding: 0;
+    }
+
+    li {
+      margin: 6px 0;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0 18px;
+      background: var(--panel);
+    }
+
+    th,
+    td {
+      border: 1px solid var(--line);
+      padding: 9px 11px;
+      vertical-align: top;
+      text-align: left;
+    }
+
+    th {
+      background: #edf1f7;
+      font-weight: 700;
+    }
+
+    .flow {
+      display: grid;
+      gap: 8px;
+      margin: 12px 0;
+    }
+
+    .flow div {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-left: 4px solid var(--accent);
+      border-radius: 6px;
+      padding: 10px 12px;
+    }
+
+    .small {
+      color: var(--muted);
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <span class="tag">Isaac Lab Teleop Design Note</span>
+      <h1>Pico Motion Controller 控制自定义 G1 1DOF Gripper 的方案</h1>
+      <p class="summary">
+        本文总结现有 <code>Isaac-Stack-Cube-Franka-IK-Abs-v0</code> motion controllers 链路如何迁移到
+        自主拼装的 Unitree G1 USD，并说明如何在 headless 模式下做开发、自动测试和视频验证闭环。
+      </p>
+      <p class="small">
+        目标 USD:
+        <code>RobotLearningLab_Dataset/usecase/humanoid_teleop/g1_29dof_dex1_1_v4_test_good.usd</code>
+      </p>
+    </header>
+
+    <section>
+      <h2>结论</h2>
+      <div class="panel">
+        <p>
+          <span class="ok">可行。</span>
+          现有 Franka 示例已经证明 Pico motion controller 可以作为输入源：右手柄位姿控制末端，trigger 控制 1DOF gripper。
+          因此 Pico、CloudXR、OpenXR、Isaac Lab device factory 这一层基本不用重做。
+        </p>
+        <p>
+          主要工作在 G1 侧：把原来面向 TriHand/Inspire 灵巧手的多关节手部动作，替换成自定义 G1 USD 上的
+          1DOF 并联夹爪 joint 控制。
+        </p>
+      </div>
+      <div class="status-grid">
+        <div class="status">
+          <strong>Pico 输入链路</strong>
+          <span class="ok">已有基础</span>
+          <p class="small">现有 Franka motion controller 示例已实现右手柄 pose + trigger。</p>
+        </div>
+        <div class="status">
+          <strong>G1 自定义 USD</strong>
+          <span class="warn">需要适配</span>
+          <p class="small">需要确认 articulation、joint names、body names、gripper open/close 位置。</p>
+        </div>
+        <div class="status">
+          <strong>Headless 验证</strong>
+          <span class="ok">可做</span>
+          <p class="small">可以用 scripted/fake controller 模拟 trigger，自动跑开闭测试并保存报告和视频。</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>现有链路</h2>
+      <p>
+        现有 <code>Isaac-Stack-Cube-Franka-IK-Abs-v0</code> motion controllers 的逻辑可以抽象为：
+      </p>
+      <div class="flow">
+        <div>Pico 4 Ultra motion controller 通过 CloudXR / OpenXR 提供 controller pose 和 trigger。</div>
+        <div><code>OpenXRDevice</code> 读取 <code>CONTROLLER_RIGHT</code> 的 pose 和 inputs。</div>
+        <div><code>Se3AbsMotionControllerRetargeter</code> 把右手柄 pose 转为末端执行器绝对位姿命令。</div>
+        <div><code>GripperTriggerOrPinchRetargeter</code> 把 trigger 转成 1 维 gripper open/close 命令。</div>
+        <div>Isaac Lab action manager 把 action 写入机器人 arm IK 和 gripper joint target。</div>
+      </div>
+      <p>
+        对 G1 来说，Pico 输入层可以保留，核心变化是 action 末端的机器人映射。
+      </p>
+    </section>
+
+    <section>
+      <h2>目标变化</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>项目</th>
+            <th>Franka 示例</th>
+            <th>自定义 G1 目标</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>输入设备</td>
+            <td>Pico motion controller，右手柄 pose + trigger</td>
+            <td>继续复用同一输入语义</td>
+          </tr>
+          <tr>
+            <td>手臂控制</td>
+            <td>Franka differential IK</td>
+            <td>G1 upper-body IK 或固定姿态下只测 gripper</td>
+          </tr>
+          <tr>
+            <td>夹爪控制</td>
+            <td>1DOF gripper binary open/close</td>
+            <td>自定义 G1 USD 上的 1DOF 并联夹爪 joint</td>
+          </tr>
+          <tr>
+            <td>原 G1 灵巧手</td>
+            <td>不涉及</td>
+            <td>原本 TriHand/Inspire 多关节逻辑需要替换或旁路</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>建议实现方式</h2>
+      <h3>1. 先建立自定义 G1 asset cfg</h3>
+      <p>
+        在 <code>isaaclab_assets.robots.unitree</code> 或项目自定义 asset 配置中新增一个 G1 cfg，指向本地 USD。
+        它应至少包含：
+      </p>
+      <ul>
+        <li><code>usd_path</code> 指向 <code>g1_29dof_dex1_1_v4_test_good.usd</code>。</li>
+        <li>合适的 <code>prim_path</code>，例如 <code>/World/envs/env_.*/Robot</code>。</li>
+        <li>上肢、腰部、腿部、夹爪的 actuator 配置。</li>
+        <li>是否固定 root link。早期建议固定 root，降低验证复杂度。</li>
+      </ul>
+
+      <h3>2. 枚举 USD 里的 articulation 和 gripper joint</h3>
+      <p>
+        需要确认 1DOF gripper 是同一个 articulation 下的普通 joint，还是 mimic/follower joint，或者独立 articulation。
+        这一步决定后续 action 怎么写。
+      </p>
+      <pre><code>需要确认的信息：
+- default prim / articulation root
+- all joint names
+- all body names
+- gripper joint name
+- gripper open position
+- gripper close position
+- gripper joint limit
+- gripper drive stiffness / damping</code></pre>
+
+      <h3>3. 优先采用“IK 控手臂 + BinaryJointPositionAction 控夹爪”</h3>
+      <p>
+        不建议把 1DOF gripper 强塞进原 TriHand/Inspire 多关节 retargeter。
+        更清晰的结构是把手臂 IK 和 gripper 分开：
+      </p>
+      <ul>
+        <li><code>upper_body_ik</code>: 控制 G1 左/右 wrist 或只控制右手 wrist。</li>
+        <li><code>gripper_action</code>: 使用 <code>BinaryJointPositionActionCfg</code> 或等价 action 控制 1DOF gripper joint。</li>
+      </ul>
+      <p>
+        这样和 Franka 任务的结构最接近，debug 时也能独立验证 gripper。
+      </p>
+
+      <h3>4. Retargeter 层保留 Pico trigger 语义</h3>
+      <p>
+        可以复用 <code>GripperTriggerOrPinchRetargeter</code> 的语义：trigger 大于阈值则 close，否则 open。
+        如果 G1 action vector 的排列与 Franka 不同，可以新增一个更窄的 retargeter：
+      </p>
+      <pre><code>G1OneDofGripperRetargeter:
+  input:  CONTROLLER_RIGHT trigger
+  output: [gripper_command]
+  command convention:
+    +1.0 = open
+    -1.0 = close</code></pre>
+    </section>
+
+    <section>
+      <h2>Headless 开发与验证闭环</h2>
+      <p>
+        Headless 模式下不适合依赖真实键盘鼠标焦点做自动化测试。更可靠的方式是模拟 Pico motion controller 输入，
+        生成与 <code>OpenXRDevice</code> 相同的数据结构。
+      </p>
+      <h3>推荐闭环</h3>
+      <ol>
+        <li>Load 目标 G1 USD，确认 articulation 和 gripper joint 可解析。</li>
+        <li>固定 base 或只启用 gripper，先跑 open-close-open smoke test。</li>
+        <li>脚本模拟 <code>CONTROLLER_RIGHT</code> trigger: 0.0 -> 1.0 -> 0.0。</li>
+        <li>每步读取 gripper joint position，判断是否达到 open/close 阈值。</li>
+        <li>用 headless camera 保存 MP4 或 PNG 序列。</li>
+        <li>输出 <code>json</code> / <code>md</code> 报告，记录成功与失败原因。</li>
+      </ol>
+
+      <h3>建议的自动化产物</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>产物</th>
+            <th>用途</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>out/g1_1dof_gripper_smoke.json</code></td>
+            <td>记录关节名、open/close target、实际位置、误差、成功状态。</td>
+          </tr>
+          <tr>
+            <td><code>out/g1_1dof_gripper_smoke.md</code></td>
+            <td>给人工快速阅读的测试报告。</td>
+          </tr>
+          <tr>
+            <td><code>out/g1_1dof_gripper_smoke.mp4</code></td>
+            <td>验证 gripper 开闭动作是否可视化正确。</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>实施顺序</h2>
+      <ol>
+        <li>
+          <strong>Asset probe:</strong>
+          编写或复用脚本枚举目标 USD 的 articulation、joint、body，确认 1DOF gripper joint 名称。
+        </li>
+        <li>
+          <strong>Standalone gripper smoke test:</strong>
+          不进完整 Isaac Lab task，先用 Isaac Sim headless 直接控制 gripper joint open/close。
+        </li>
+        <li>
+          <strong>Isaac Lab asset cfg:</strong>
+          新增自定义 G1 USD 的 <code>ArticulationCfg</code>，配置 gripper actuator。
+        </li>
+        <li>
+          <strong>Task cfg:</strong>
+          基于现有 G1 fixed-base upper-body IK 或 locomanipulation task，新建一个 1DOF gripper 版本。
+        </li>
+        <li>
+          <strong>Teleop device cfg:</strong>
+          增加 <code>motion_controllers</code> 设备键，复用右手柄 pose 和 trigger。
+        </li>
+        <li>
+          <strong>Scripted headless test:</strong>
+          新增 fake motion controller 输入，自动跑任务并生成 report + video。
+        </li>
+        <li>
+          <strong>Pico real-device test:</strong>
+          使用真实 Pico motion controller 跑 <code>record_demos.py --headless</code>。
+        </li>
+      </ol>
+    </section>
+
+    <section>
+      <h2>主要风险</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>风险</th>
+            <th>影响</th>
+            <th>规避方式</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>gripper joint 不在主 articulation 内</td>
+            <td>Isaac Lab 单个 robot action 可能找不到该 joint</td>
+            <td>先用 USD/Articulation probe 确认结构；必要时单独建 asset/action。</td>
+          </tr>
+          <tr>
+            <td>gripper 是 mimic/follower 结构</td>
+            <td>只控制一个 joint 可能不会带动所有爪指</td>
+            <td>确认 mimic 关系；必要时控制多个 joint 或在 USD 中补驱动约束。</td>
+          </tr>
+          <tr>
+            <td>G1 IK 的 URDF 与自定义 USD 不匹配</td>
+            <td>手臂 IK 可能失败或 frame 名称不一致</td>
+            <td>先固定手臂只测 gripper；随后为自定义 USD 生成/校正 URDF 和 frame 名称。</td>
+          </tr>
+          <tr>
+            <td>全身动态导致验证不稳定</td>
+            <td>机器人姿态变化会影响 gripper 测试</td>
+            <td>早期固定 base，只测上肢和夹爪。</td>
+          </tr>
+          <tr>
+            <td>真实 Pico 输入不利于自动化回归</td>
+            <td>AI 无法稳定复现人工操作</td>
+            <td>增加 fake/scripted motion controller 作为 headless CI 输入源。</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>推荐最小里程碑</h2>
+      <div class="panel">
+        <p>
+          第一阶段只做 <strong>1DOF gripper headless smoke test</strong>：
+          不接完整遥操作，不做堆叠任务，只验证目标 USD 中 gripper joint 可以被 Isaac Sim headless 控制，并且能生成报告和视频。
+        </p>
+        <p>
+          通过后再进入第二阶段：把它接入 Isaac Lab 的 <code>motion_controllers</code> 设备和 G1 task。
+        </p>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

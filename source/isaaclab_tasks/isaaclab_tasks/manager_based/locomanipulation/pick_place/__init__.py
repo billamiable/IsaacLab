@@ -9,7 +9,14 @@
 import gymnasium as gym
 import os
 
-from . import agents, fixed_base_upper_body_ik_g1_env_cfg, locomanipulation_g1_env_cfg
+from . import (
+    agents,
+    fixed_base_upper_body_ik_g1_env_cfg,
+    g1_dex1_fixed_base_ik_scene_env_cfg,
+    g1_dex1_fixed_base_scene_env_cfg,
+    g1_dex1_gripper_only_env_cfg,
+    locomanipulation_g1_env_cfg,
+)
 
 gym.register(
     id="Isaac-PickPlace-Locomanipulation-G1-Abs-v0",
@@ -29,3 +36,31 @@ gym.register(
     },
     disable_env_checker=True,
 )
+
+gym.register(
+    id="Isaac-G1-Dex1-Gripper-Only-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    kwargs={
+        "env_cfg_entry_point": g1_dex1_gripper_only_env_cfg.G1Dex1GripperOnlyEnvCfg,
+    },
+    disable_env_checker=True,
+)
+
+gym.register(
+    id="Isaac-G1-Dex1-FixedBase-Scene-Gripper-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    kwargs={
+        "env_cfg_entry_point": g1_dex1_fixed_base_scene_env_cfg.G1Dex1FixedBaseSceneEnvCfg,
+    },
+    disable_env_checker=True,
+)
+
+gym.register(
+    id="Isaac-G1-Dex1-FixedBase-IK-Scene-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    kwargs={
+        "env_cfg_entry_point": g1_dex1_fixed_base_ik_scene_env_cfg.G1Dex1FixedBaseIKSceneEnvCfg,
+    },
+    disable_env_checker=True,
+)
+

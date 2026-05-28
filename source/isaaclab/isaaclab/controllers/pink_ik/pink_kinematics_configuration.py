@@ -7,9 +7,23 @@ from __future__ import annotations
 
 import numpy as np
 import pinocchio as pin
+import xml.etree.ElementTree as ET
 from pink.configuration import Configuration
 from pink.exceptions import FrameNotFound
 from pinocchio.robot_wrapper import RobotWrapper
+
+
+def _get_joint_names_from_model_or_urdf(model: pin.Model, urdf_path: str) -> list[str]:
+    """Return actuated joint names in Pinocchio order, with a URDF fallback."""
+    try:
+        return list(model.names)[1:]
+    except TypeError:
+        root = ET.parse(urdf_path).getroot()
+        return [
+            joint.attrib["name"]
+            for joint in root.findall("joint")
+            if joint.attrib.get("type", "fixed") != "fixed"
+        ]
 
 
 class PinkKinematicsConfiguration(Configuration):
@@ -66,7 +80,7 @@ class PinkKinematicsConfiguration(Configuration):
         self.full_q = self.robot_wrapper.q0
 
         # import pdb; pdb.set_trace()
-        self._all_joint_names = self.full_model.names.tolist()[1:]
+        self._all_joint_names = _get_joint_names_from_model_or_urdf(self.full_model, urdf_path)
         # controlled_joint_indices: indices in all_joint_names for joints that are in controlled_joint_names,
         # preserving all_joint_names order
         self._controlled_joint_indices = [
@@ -181,6 +195,11 @@ class PinkKinematicsConfiguration(Configuration):
     def controlled_joint_names_pinocchio_order(self) -> list[str]:
         """Get the names of the controlled joints in the order of the pinocchio model."""
         return [self._all_joint_names[i] for i in self._controlled_joint_indices]
+
+    @property
+    def controlled_joint_indices_pinocchio_order(self) -> list[int]:
+        """Get controlled joint indices in the full Pinocchio model order."""
+        return self._controlled_joint_indices
 
     @property
     def all_joint_names_pinocchio_order(self) -> list[str]:

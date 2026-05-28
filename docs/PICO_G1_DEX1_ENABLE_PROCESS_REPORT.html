@@ -1,0 +1,560 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>G1 Dex1 Pico Teleop Pipeline Enable 复盘</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7f9;
+      --paper: #ffffff;
+      --text: #20242b;
+      --muted: #5c6675;
+      --line: #d9dee7;
+      --accent: #1c64b7;
+      --accent-soft: #eaf2ff;
+      --ok: #176f43;
+      --warn: #9a5a00;
+      --code-bg: #eef2f7;
+      --pre-bg: #182331;
+      --pre-text: #edf4ff;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.62;
+    }
+
+    main {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 38px 24px 72px;
+    }
+
+    header {
+      padding-bottom: 24px;
+      border-bottom: 1px solid var(--line);
+      margin-bottom: 28px;
+    }
+
+    h1 {
+      margin: 8px 0 12px;
+      font-size: 32px;
+      line-height: 1.24;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin: 34px 0 14px;
+      font-size: 23px;
+      line-height: 1.35;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin: 24px 0 10px;
+      font-size: 18px;
+      line-height: 1.35;
+      letter-spacing: 0;
+    }
+
+    p {
+      margin: 9px 0;
+    }
+
+    a {
+      color: var(--accent);
+    }
+
+    code {
+      background: var(--code-bg);
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 0.94em;
+    }
+
+    pre {
+      margin: 12px 0 18px;
+      padding: 14px 16px;
+      overflow-x: auto;
+      border-radius: 8px;
+      background: var(--pre-bg);
+      color: var(--pre-text);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    pre code {
+      background: transparent;
+      padding: 0;
+      color: inherit;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0 18px;
+      background: var(--paper);
+    }
+
+    th,
+    td {
+      border: 1px solid var(--line);
+      padding: 9px 11px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: #edf1f7;
+      font-weight: 700;
+    }
+
+    ul,
+    ol {
+      margin: 8px 0 14px 24px;
+      padding: 0;
+    }
+
+    li {
+      margin: 5px 0;
+    }
+
+    .tag {
+      display: inline-block;
+      padding: 3px 9px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .summary {
+      max-width: 950px;
+      color: var(--muted);
+      font-size: 16px;
+    }
+
+    .panel {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px 18px;
+      margin: 14px 0;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 12px;
+      margin: 14px 0;
+    }
+
+    .tile {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px 16px;
+    }
+
+    .tile strong {
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    .ok {
+      color: var(--ok);
+      font-weight: 700;
+    }
+
+    .warn {
+      color: var(--warn);
+      font-weight: 700;
+    }
+
+    .small {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .flow {
+      display: grid;
+      gap: 8px;
+      margin: 12px 0;
+    }
+
+    .flow div {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-left: 4px solid var(--accent);
+      border-radius: 6px;
+      padding: 10px 12px;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <span class="tag">Enable Process Report</span>
+      <h1>G1 Dex1 1DOF Gripper + Pico Motion Controller Headless Pipeline 复盘</h1>
+      <p class="summary">
+        这份文档只总结本轮实际做过并验证过的 enable 过程：从 Docker/headless 能跑，到加载自定义
+        G1 Dex1 USD，再到 Isaac Lab manager-based env、Pink IK、mock Pico retargeter、视频验证。目标是把这次适配中可复用的方法沉淀出来，后续迁移到其他机器人或环境时可以按同样切片推进。
+      </p>
+      <p class="small">
+        记录日期：2026-05-28。工作目录：
+        <code>/home/yujie/workspace/yujie/iProject/customer/VeOV/pico/from_yanzi/cloudxr-runtime-blueprint/INTERNAL_examples/isaac-lab-teleop</code>
+      </p>
+    </header>
+
+    <section>
+      <h2>最终状态</h2>
+      <div class="grid">
+        <div class="tile">
+          <strong>Headless Isaac Lab</strong>
+          <span class="ok">已跑通</span>
+          <p class="small">通过 Docker 内 <code>./isaaclab.sh -p ... --headless --enable_cameras</code> 生成测试报告和 MP4。</p>
+        </div>
+        <div class="tile">
+          <strong>自定义 G1 Dex1 USD</strong>
+          <span class="ok">已加载并控制</span>
+          <p class="small">右侧 Dex1 gripper 的两个 prismatic joints 可通过 Isaac Lab action 跟踪 open/close target。</p>
+        </div>
+        <div class="tile">
+          <strong>Pink IK + Gripper</strong>
+          <span class="ok">已跑通</span>
+          <p class="small">action space 为 <code>15D = upper_body_ik 14D + gripper_action 1D</code>。</p>
+        </div>
+        <div class="tile">
+          <strong>Mock Pico Retargeter</strong>
+          <span class="ok">已验证</span>
+          <p class="small">模拟右手柄 pose 和 trigger，经过 retargeter 生成 wrist pose + gripper command。</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>关键资产与路径</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>项目</th>
+            <th>路径 / 名称</th>
+            <th>作用</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>目标 USD</td>
+            <td><code>RobotLearningLab_Dataset/usecase/humanoid_teleop/g1_29dof_dex1_1_v4_test_good.usd</code></td>
+            <td>用户拼接完成并通过 Gain Tuner 的最终仿真资产。</td>
+          </tr>
+          <tr>
+            <td>Docker 容器</td>
+            <td><code>isaac-lab-232</code></td>
+            <td>运行 Isaac Sim 5.1.0 / Isaac Lab teleop 环境。</td>
+          </tr>
+          <tr>
+            <td>容器内 Isaac Lab</td>
+            <td><code>/workspace/isaaclab</code></td>
+            <td>本地 <code>IsaacLab</code> 代码挂载位置。</td>
+          </tr>
+          <tr>
+            <td>容器内项目根目录</td>
+            <td><code>/workspace/host</code></td>
+            <td>宿主机当前 repo 根目录挂载位置，输出写到 <code>/workspace/host/out</code>。</td>
+          </tr>
+          <tr>
+            <td>IK 用 URDF</td>
+            <td><code>/workspace/host/unitree_ros/robots/g1_description/g1_29dof_mode_15_with_dex1_1.urdf</code></td>
+            <td>Pink/Pinocchio 运动学模型。用于 IK，不直接替代最终 USD。</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="panel">
+        <p>
+          资产来源理解：最终 USD 不是简单 URDF 直接转 USD，而是以原 G1 USD 为基础，移除 Inspire hand，再从完整 URDF 转 USD 的结果中取出 Dex1 gripper 部分并拼接。由于用户已在 Gain Tuner 中跑通该 USD，本轮验证重点放在 joint/name/action/IK/input 映射，而不是重新证明资产物理拓扑可靠。
+        </p>
+      </div>
+    </section>
+
+    <section>
+      <h2>实际 Enable 过程</h2>
+
+      <h3>1. 先确认 Docker/headless 能工作</h3>
+      <p>
+        目的不是立刻接 teleop，而是确认 AI 可以在容器里启动 Isaac Lab，并在无 GUI 的情况下执行脚本、保存本地文件。
+      </p>
+      <pre><code>docker exec -w /workspace/isaaclab isaac-lab-232 \
+  ./isaaclab.sh -p scripts/tools/&lt;script&gt;.py \
+  --headless --device cuda:0</code></pre>
+      <p>
+        后续涉及 Pink/Pinocchio 的脚本统一加 <code>--enable_pinocchio</code>，涉及相机渲染的脚本加 <code>--enable_cameras</code>。
+      </p>
+
+      <h3>2. Headless 加载 USD 并解决相机视角问题</h3>
+      <p>
+        最早的截图只能看到机器人局部，说明“加载成功”和“可视化验收”是两件事。后续视频脚本都加入了全局相机逻辑：根据 robot body 和 scene object 的 world position 计算 bounds，再把 camera 放到能看到全局的位置。
+      </p>
+      <pre><code>def compute_scene_bounds(env, robot):
+    positions = [robot.data.body_pos_w[0]]
+    for rigid_object in env.unwrapped.scene.rigid_objects.values():
+        positions.append(rigid_object.data.root_pos_w)
+    body_pos = torch.cat(positions, dim=0)
+    center = (body_pos.min(dim=0).values + body_pos.max(dim=0).values) * 0.5
+    return center, radius</code></pre>
+      <p class="small">
+        可复用经验：任何 headless 验证视频都不要依赖默认 viewer 视角，应该在脚本里显式设置 global camera 和 close-up camera。
+      </p>
+
+      <h3>3. 确认 Dex1 gripper 的 joint 映射</h3>
+      <p>
+        通过 USD/Isaac Lab articulation probe 确认：整机是 33 joints，即 G1 29DoF body 加 4 个 Dex1 prismatic joints。右侧 gripper 实验先只控制两个右手 prismatic joints：
+      </p>
+      <pre><code>RIGHT_DEX1_GRIPPER_JOINTS = [
+    "right_dex1_finger_joint_1",
+    "right_dex1_finger_joint_2",
+]
+RIGHT_DEX1_OPEN = 0.02449999935925007
+RIGHT_DEX1_CLOSE = -0.019999999552965164</code></pre>
+      <p>
+        这里“1DOF gripper”是控制语义上的 1 维：Pico trigger 或 gripper scalar 只有一个值；物理实现上会同时写两个 prismatic joint target。
+      </p>
+
+      <h3>4. 做最小 gripper-only Isaac Lab env</h3>
+      <p>
+        新增 <code>g1_dex1_gripper_only_env_cfg.py</code>。它只保留 robot、ground、light、一个 <code>BinaryJointPositionActionCfg</code>，不接 IK，不放桌子和 cube。
+      </p>
+      <pre><code>gripper_action = mdp.BinaryJointPositionActionCfg(
+    asset_name="robot",
+    joint_names=RIGHT_DEX1_GRIPPER_JOINTS,
+    open_command_expr={... RIGHT_DEX1_OPEN ...},
+    close_command_expr={... RIGHT_DEX1_CLOSE ...},
+)</code></pre>
+      <p>
+        这个切片验证了：Isaac Lab action manager 能找到自定义 USD 里的右手 gripper joints，并且 binary action 能稳定驱动 open/close。
+      </p>
+
+      <h3>5. 加入固定下半身场景：table + cube</h3>
+      <p>
+        新增 <code>g1_dex1_fixed_base_scene_env_cfg.py</code>。它仍然只测 gripper action，但加入 table 和 cube，让视觉上更接近真实 teleop 环境。
+      </p>
+      <pre><code>table: kinematic cuboid
+cube:  rigid cuboid, pos=(0.38, 0.30, 0.78)
+robot.spawn.articulation_props.fix_root_link = True</code></pre>
+      <p>
+        这一步证明：在 manager-based task scene 里，自定义 G1 Dex1 USD、桌子、物体、观测项、相机渲染可以共存。
+      </p>
+
+      <h3>6. 接入 Pink IK，控制上半身 wrist pose</h3>
+      <p>
+        新增 <code>g1_dex1_fixed_base_ik_scene_env_cfg.py</code>。它把 action 拆成两段：
+      </p>
+      <pre><code>upper_body_ik:  14D = left_wrist_pose(7) + right_wrist_pose(7)
+gripper_action: 1D  = right Dex1 open/close</code></pre>
+      <p>
+        这里选择固定 root/lower body，暂不做 locomotion；参考的是已有 fixed-base G1 / locomanipulation G1 示例。IK 用 URDF，仿真显示和物理用最终 USD。
+      </p>
+      <p>
+        实际遇到的问题是：现有 Pink action 默认手部关节并入 Pink action，例如原 G1 示例是 <code>num_hand_joints=14</code>。本轮实验采用 <code>num_hand_joints=0</code>，让 gripper 走单独 action term，因此临时改了部分 Pink 核心代码以跑通 reduced model 和 zero hand joints。
+      </p>
+
+      <h3>7. 增加 G1 Dex1 motion-controller retargeter</h3>
+      <p>
+        新增 <code>g1_dex1_upper_body_motion_ctrl_retargeter.py</code>，把 mock/真实右手柄位姿映射为 G1 wrist target。
+      </p>
+      <pre><code>G1Dex1UpperBodyMotionControllerRetargeter:
+  input:
+    CONTROLLER_RIGHT pose
+  output:
+    [left_wrist_pose(7), right_wrist_pose(7)]
+  current behavior:
+    left wrist holds default pose
+    right wrist = default pose + controller relative translation
+    orientation held fixed for first safe version</code></pre>
+      <p>
+        gripper trigger 沿用现有 <code>GripperTriggerOrPinchRetargeter</code>。最终 mock Pico pipeline 是：
+      </p>
+      <div class="flow">
+        <div>mock <code>CONTROLLER_RIGHT</code> pose + trigger</div>
+        <div><code>G1Dex1UpperBodyMotionControllerRetargeter</code> 输出 14D wrist pose</div>
+        <div><code>GripperTriggerOrPinchRetargeter</code> 输出 1D gripper command</div>
+        <div>拼成 15D action，交给 Isaac Lab env.step()</div>
+      </div>
+
+      <h3>8. Headless 生成验证视频和报告</h3>
+      <p>
+        先做简单 open/close，再做 retargeter pipeline，再做更复杂的抓取式轨迹。最后一个轨迹不是只做前后运动，而是多段移动：
+      </p>
+      <pre><code>home_open
+  -> lateral_align_open
+  -> forward_approach_open
+  -> descend_to_grasp_open
+  -> close_gripper
+  -> lift_closed
+  -> retreat_reopen</code></pre>
+      <p>
+        复杂轨迹参数为 <code>x=0.18, y=0.24, z=-0.20</code>，用于增加 IK 难度并模拟实际抓取动作形态。
+      </p>
+    </section>
+
+    <section>
+      <h2>新增 / 修改的主要文件</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>文件</th>
+            <th>用途</th>
+            <th>是否适合作为长期实现</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>source/isaaclab_tasks/.../g1_dex1_gripper_only_env_cfg.py</code></td>
+            <td>最小 gripper-only manager-based env。</td>
+            <td><span class="ok">适合保留</span>，作为 smoke test。</td>
+          </tr>
+          <tr>
+            <td><code>source/isaaclab_tasks/.../g1_dex1_fixed_base_scene_env_cfg.py</code></td>
+            <td>固定 G1，下半身不动，加入 table/cube 场景。</td>
+            <td><span class="ok">适合保留</span>，作为 scene pipeline 验证。</td>
+          </tr>
+          <tr>
+            <td><code>source/isaaclab_tasks/.../g1_dex1_fixed_base_ik_scene_env_cfg.py</code></td>
+            <td>固定 G1 + Pink upper-body IK + right Dex1 gripper。</td>
+            <td><span class="ok">适合保留</span>，但应减少对 Isaac Lab 核心 patch 的依赖。</td>
+          </tr>
+          <tr>
+            <td><code>source/isaaclab/isaaclab/devices/openxr/retargeters/humanoid/unitree/dex1/g1_dex1_upper_body_motion_ctrl_retargeter.py</code></td>
+            <td>G1 Dex1 专用 motion controller retargeter。</td>
+            <td><span class="ok">适合保留</span>，后续可扩展 orientation、左右手、scale。</td>
+          </tr>
+          <tr>
+            <td><code>scripts/tools/probe_g1_dex1_* .py</code></td>
+            <td>headless smoke tests，输出 JSON/MD。</td>
+            <td><span class="ok">适合保留</span>，作为回归验证工具。</td>
+          </tr>
+          <tr>
+            <td><code>scripts/tools/render_g1_dex1_* .py</code></td>
+            <td>headless camera 渲染 MP4 和关键帧。</td>
+            <td><span class="ok">适合保留</span>，作为人工视觉验收工具。</td>
+          </tr>
+          <tr>
+            <td><code>pink_task_space_actions.py / pink_ik.py / pink_kinematics_configuration.py / null_space_posture_task.py</code></td>
+            <td>临时修复 zero-hand-joint、reduced model/nullspace 维度等问题。</td>
+            <td><span class="warn">需要后续清理</span>，不建议长期直接改 Isaac Lab 核心。</td>
+          </tr>
+          <tr>
+            <td><code>pick_place/__init__.py</code></td>
+            <td>注册 <code>Isaac-G1-Dex1-*</code> task id。</td>
+            <td><span class="warn">可后续移到独立注册模块</span>，减少对原 task 包的侵入。</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>验证产物</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>产物</th>
+            <th>证明了什么</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>out/g1_dex1_right_gripper_open_close_test.mp4/json</code></td>
+            <td>加载目标 USD 后，右侧 Dex1 gripper 能直接开闭。</td>
+          </tr>
+          <tr>
+            <td><code>out/g1_dex1_gripper_only_env_smoke.json/md</code></td>
+            <td>manager-based gripper-only env 中 action manager 能控制 right Dex1 joints。</td>
+          </tr>
+          <tr>
+            <td><code>out/g1_dex1_fixed_base_scene_visible_cube_gripper_pipeline.mp4/json</code></td>
+            <td>固定 G1 + table + cube 场景可渲染，cube 在画面中可见。</td>
+          </tr>
+          <tr>
+            <td><code>out/g1_dex1_fixed_base_ik_gripper_smoke.json/md</code></td>
+            <td>Pink IK + gripper action 跑通，action space 为 <code>15D</code>。</td>
+          </tr>
+          <tr>
+            <td><code>out/g1_dex1_motion_controller_retargeter_smoke.json/md</code></td>
+            <td>mock Pico raw data 经过 retargeter 后能控制 wrist + gripper。</td>
+          </tr>
+          <tr>
+            <td><code>out/g1_dex1_motion_controller_grasp_sequence.mp4/json</code></td>
+            <td>复杂抓取式轨迹可在 headless 中稳定生成视频。MP4 为 <code>192</code> 帧，<code>24fps</code>，<code>1600x540</code>。</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="panel">
+        <p>
+          最新复杂轨迹验证结果：action terms 为 <code>["upper_body_ik", "gripper_action"]</code>，dims 为 <code>[14, 1]</code>；
+          右腕最大位移约 <code>0.355m</code>；gripper joint 范围约 <code>-0.0200m</code> 到 <code>0.0245m</code>。
+        </p>
+      </div>
+    </section>
+
+    <section>
+      <h2>可复用适配方法</h2>
+      <ol>
+        <li>
+          <strong>先切资产，不切任务。</strong>
+          用最小脚本 load USD，枚举 articulation、joint、body、limits、drive。先证明名字和自由度。
+        </li>
+        <li>
+          <strong>把复杂任务拆成 action 切片。</strong>
+          先只测 gripper，再测 scene，再测 IK，再测 teleop input。每一步都能输出 JSON 和视频。
+        </li>
+        <li>
+          <strong>控制语义和物理 joint 分开。</strong>
+          “1DOF gripper”可以是一个输入标量，但底层可能写两个或多个 prismatic joints。
+        </li>
+        <li>
+          <strong>IK 用 URDF，仿真用 USD，但必须建立 name/frame 映射。</strong>
+          如果 USD 是拼接资产，URDF 只承担运动学求解角色，不应该假设它等同于最终仿真资产。
+        </li>
+        <li>
+          <strong>headless 视频必须自带相机策略。</strong>
+          自动计算 scene bounds，保存 global view + close-up view，避免“跑通但看不到”的问题。
+        </li>
+        <li>
+          <strong>mock device 是 teleop 适配的核心工具。</strong>
+          真实 Pico 适合最终人工验收；开发和回归应使用 mock raw data 复现 pose/trigger。
+        </li>
+        <li>
+          <strong>尽量把适配逻辑放到新增文件。</strong>
+          核心 Isaac Lab patch 可以用于快速验证，但后续应收敛到 robot-specific cfg、retargeter、script，降低维护风险。
+        </li>
+      </ol>
+    </section>
+
+    <section>
+      <h2>下一步建议</h2>
+      <div class="panel">
+        <p>
+          当前 pipeline 已经证明：自定义 G1 Dex1 USD 可以在 Isaac Lab headless 中被 mock Pico motion controller 控制，右手腕 IK 和右侧 1D gripper action 可以一起工作。
+        </p>
+        <p>
+          下一个更接近任务成功的验证应加入 contact/lift 指标：闭合后 cube 是否被夹住、cube 高度是否上升、cube 与 gripper 的相对距离是否保持。这样才能从“抓取动作形态验证”进入“物理抓取成功验证”。
+        </p>
+        <p>
+          工程清理建议放到后续单独做：恢复无关 Fourier yml；把 task 注册和 Pink 兼容改动从 Isaac Lab 核心里隔离出来；保留新增 G1 Dex1 cfg、retargeter、probe/render scripts 作为正式适配资产。
+        </p>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

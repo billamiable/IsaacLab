@@ -196,8 +196,13 @@ class PinkInverseKinematicsAction(ActionTerm):
         # Store raw actions
         self._raw_actions[:] = actions
 
-        # Extract hand joint positions directly (no cloning needed)
-        self._target_hand_joint_positions = actions[:, -self.hand_joint_dim :]
+        # Extract hand joint positions directly (no cloning needed). Some robots
+        # use Pink IK only for arm joints and route the gripper through a separate
+        # action term, so zero hand joints must remain a zero-width tensor.
+        if self.hand_joint_dim > 0:
+            self._target_hand_joint_positions = actions[:, -self.hand_joint_dim :]
+        else:
+            self._target_hand_joint_positions = torch.zeros(self.num_envs, 0, device=self.device)
 
         # Get base link frame transformation
         self.base_link_frame_in_world_rf = self._get_base_link_frame_transform()
@@ -310,7 +315,10 @@ class PinkInverseKinematicsAction(ActionTerm):
         ik_joint_positions = self._compute_ik_solutions()
 
         # Combine IK and hand joint positions
-        all_joint_positions = torch.cat((ik_joint_positions, self._target_hand_joint_positions), dim=1)
+        if self.hand_joint_dim > 0:
+            all_joint_positions = torch.cat((ik_joint_positions, self._target_hand_joint_positions), dim=1)
+        else:
+            all_joint_positions = ik_joint_positions
         self._processed_actions = all_joint_positions
 
         # Apply gravity compensation to arm joints

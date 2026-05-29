@@ -37,7 +37,7 @@ from isaaclab_tasks.manager_based.locomanipulation.pick_place import mdp as loco
 from isaaclab_tasks.manager_based.manipulation.pick_place import mdp as manip_mdp
 
 
-CUBE_SIZE = 0.08
+CUBE_SIZE = 0.05
 TABLE_CENTER = (0.36, 0.0, 0.78)
 TABLE_SIZE = (0.82, 0.72, 0.06)
 TABLE_TOP_Z = TABLE_CENTER[2] + TABLE_SIZE[2] * 0.5
@@ -76,7 +76,7 @@ class G1Dex1StackCubeReachabilitySceneCfg(InteractiveSceneCfg):
                 disable_gravity=False,
             ),
             collision_props=sim_utils.CollisionPropertiesCfg(),
-            mass_props=sim_utils.MassPropertiesCfg(mass=0.08),
+            mass_props=sim_utils.MassPropertiesCfg(mass=0.04),
             visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.05, 0.20, 0.95), roughness=0.45),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(pos=(0.34, -0.16, CUBE_CENTER_Z), rot=(1.0, 0.0, 0.0, 0.0)),
@@ -95,7 +95,7 @@ class G1Dex1StackCubeReachabilitySceneCfg(InteractiveSceneCfg):
                 disable_gravity=False,
             ),
             collision_props=sim_utils.CollisionPropertiesCfg(),
-            mass_props=sim_utils.MassPropertiesCfg(mass=0.08),
+            mass_props=sim_utils.MassPropertiesCfg(mass=0.04),
             visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.95, 0.08, 0.05), roughness=0.45),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(pos=(0.34, 0.16, CUBE_CENTER_Z), rot=(1.0, 0.0, 0.0, 0.0)),
@@ -114,7 +114,7 @@ class G1Dex1StackCubeReachabilitySceneCfg(InteractiveSceneCfg):
                 disable_gravity=False,
             ),
             collision_props=sim_utils.CollisionPropertiesCfg(),
-            mass_props=sim_utils.MassPropertiesCfg(mass=0.08),
+            mass_props=sim_utils.MassPropertiesCfg(mass=0.04),
             visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.05, 0.75, 0.20), roughness=0.45),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(pos=(0.48, 0.0, CUBE_CENTER_Z), rot=(1.0, 0.0, 0.0, 0.0)),

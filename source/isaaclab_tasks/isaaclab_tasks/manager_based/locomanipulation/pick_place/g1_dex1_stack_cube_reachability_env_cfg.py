@@ -38,7 +38,7 @@ from isaaclab_tasks.manager_based.manipulation.pick_place import mdp as manip_md
 
 
 CUBE_SIZE = 0.05
-TABLE_CENTER = (0.36, 0.0, 0.78)
+TABLE_CENTER = (0.36, 0.0, 0.895)
 TABLE_SIZE = (0.82, 0.72, 0.06)
 TABLE_TOP_Z = TABLE_CENTER[2] + TABLE_SIZE[2] * 0.5
 CUBE_CENTER_Z = TABLE_TOP_Z + CUBE_SIZE * 0.5

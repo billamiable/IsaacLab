@@ -38,7 +38,11 @@ G1_DEX1_USD_PATH = os.environ.get(
     "G1_DEX1_USD_PATH",
     "/workspace/host/RobotLearningLab_Dataset/usecase/humanoid_teleop/g1_29dof_dex1_1_v4_test_good.usd",
 )
+LEFT_DEX1_GRIPPER_JOINTS = ["left_dex1_finger_joint_1", "left_dex1_finger_joint_2"]
 RIGHT_DEX1_GRIPPER_JOINTS = ["right_dex1_finger_joint_1", "right_dex1_finger_joint_2"]
+DEX1_GRIPPER_JOINTS = LEFT_DEX1_GRIPPER_JOINTS + RIGHT_DEX1_GRIPPER_JOINTS
+LEFT_DEX1_OPEN = 0.02449999935925007
+LEFT_DEX1_CLOSE = -0.019999999552965164
 RIGHT_DEX1_OPEN = 0.02449999935925007
 RIGHT_DEX1_CLOSE = -0.019999999552965164
 

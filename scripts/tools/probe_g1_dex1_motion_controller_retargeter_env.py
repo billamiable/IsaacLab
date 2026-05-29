@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Smoke-test mock Pico motion-controller retargeting for fixed-base G1 Dex1."""
+"""Smoke-test bilateral mock Pico motion-controller retargeting for fixed-base G1 Dex1."""
 
 """Launch Isaac Sim Simulator first."""
 
@@ -13,18 +13,21 @@ from isaaclab.app import AppLauncher
 
 
 DEFAULT_TASK = "Isaac-G1-Dex1-FixedBase-IK-Scene-v0"
-DEFAULT_OUT_JSON = "/workspace/host/out/g1_dex1_motion_controller_retargeter_smoke.json"
-DEFAULT_OUT_MD = "/workspace/host/out/g1_dex1_motion_controller_retargeter_smoke.md"
+DEFAULT_OUT_JSON = "/workspace/host/out/g1_dex1_bimanual_motion_controller_retargeter_smoke.json"
+DEFAULT_OUT_MD = "/workspace/host/out/g1_dex1_bimanual_motion_controller_retargeter_smoke.md"
 
 
-parser = argparse.ArgumentParser(description="Smoke-test G1 Dex1 mock Pico motion-controller retargeter path.")
+parser = argparse.ArgumentParser(description="Smoke-test bilateral G1 Dex1 mock Pico motion-controller retargeter path.")
 parser.add_argument("--task", default=DEFAULT_TASK, help="Gym task id.")
 parser.add_argument("--out-json", default=DEFAULT_OUT_JSON, help="Path for JSON report.")
 parser.add_argument("--out-md", default=DEFAULT_OUT_MD, help="Path for Markdown report.")
 parser.add_argument("--num-envs", type=int, default=1, help="Number of environments.")
 parser.add_argument("--steps-per-command", type=int, default=60, help="Environment steps per command.")
-parser.add_argument("--wrist-motion-threshold", type=float, default=0.015, help="Required right wrist movement in m.")
+parser.add_argument("--wrist-motion-threshold", type=float, default=0.015, help="Required wrist movement in m.")
 parser.add_argument("--gripper-error-threshold", type=float, default=0.006, help="Allowed gripper joint error in m.")
+parser.add_argument("--left-offset-x", type=float, default=0.08)
+parser.add_argument("--left-offset-y", type=float, default=0.04)
+parser.add_argument("--left-offset-z", type=float, default=0.06)
 parser.add_argument("--right-offset-x", type=float, default=0.10)
 parser.add_argument("--right-offset-y", type=float, default=-0.02)
 parser.add_argument("--right-offset-z", type=float, default=0.07)
@@ -71,6 +74,9 @@ from isaaclab.devices.openxr.retargeters.manipulator.gripper_trigger_or_pinch_re
     GripperTriggerOrPinchRetargeter,
 )
 from isaaclab_tasks.manager_based.locomanipulation.pick_place.g1_dex1_gripper_only_env_cfg import (
+    LEFT_DEX1_CLOSE,
+    LEFT_DEX1_GRIPPER_JOINTS,
+    LEFT_DEX1_OPEN,
     RIGHT_DEX1_CLOSE,
     RIGHT_DEX1_GRIPPER_JOINTS,
     RIGHT_DEX1_OPEN,
@@ -80,6 +86,7 @@ from isaaclab_tasks.utils import parse_env_cfg
 
 LEFT_WRIST_BODY = "left_wrist_yaw_link"
 RIGHT_WRIST_BODY = "right_wrist_yaw_link"
+LEFT_DEX1_BODIES = ["left_dex1_base_link", "left_dex1_finger_link_1", "left_dex1_finger_link_2"]
 RIGHT_DEX1_BODIES = ["right_dex1_base_link", "right_dex1_finger_link_1", "right_dex1_finger_link_2"]
 
 
@@ -89,11 +96,25 @@ def body_pose_env_frame(env, robot, body_id: int) -> tuple[list[float], list[flo
     return [float(v) for v in pos.detach().cpu().tolist()], [float(v) for v in quat.detach().cpu().tolist()]
 
 
-def make_controller_data(position: list[float], quat: list[float], trigger: float) -> dict:
+def _controller_packet(position: list[float], quat: list[float], trigger: float) -> np.ndarray:
     pose = np.array([*position, *quat], dtype=np.float32)
     inputs = np.zeros(7, dtype=np.float32)
     inputs[DeviceBase.MotionControllerInputIndex.TRIGGER.value] = float(trigger)
-    return {DeviceBase.TrackingTarget.CONTROLLER_RIGHT: np.stack([pose, inputs])}
+    return np.stack([pose, inputs])
+
+
+def make_controller_data(
+    left_position: list[float],
+    left_quat: list[float],
+    left_trigger: float,
+    right_position: list[float],
+    right_quat: list[float],
+    right_trigger: float,
+) -> dict:
+    return {
+        DeviceBase.TrackingTarget.CONTROLLER_LEFT: _controller_packet(left_position, left_quat, left_trigger),
+        DeviceBase.TrackingTarget.CONTROLLER_RIGHT: _controller_packet(right_position, right_quat, right_trigger),
+    }
 
 
 def make_retargeters_from_env_cfg(env_cfg):
@@ -102,14 +123,27 @@ def make_retargeters_from_env_cfg(env_cfg):
     wrist_retargeter = next(
         retargeter for retargeter in retargeters if isinstance(retargeter, G1Dex1UpperBodyMotionControllerRetargeter)
     )
-    gripper_retargeter = next(
+    gripper_retargeters = [
         retargeter for retargeter in retargeters if isinstance(retargeter, GripperTriggerOrPinchRetargeter)
+    ]
+    left_gripper = next(
+        (retargeter for retargeter in gripper_retargeters if getattr(retargeter, "_bound_controller", None) == DeviceBase.TrackingTarget.CONTROLLER_LEFT),
+        None,
     )
-    return wrist_retargeter, gripper_retargeter, [type(retargeter).__name__ for retargeter in retargeters]
+    right_gripper = next(
+        (retargeter for retargeter in gripper_retargeters if getattr(retargeter, "_bound_controller", None) == DeviceBase.TrackingTarget.CONTROLLER_RIGHT),
+        None,
+    )
+    if left_gripper is None or right_gripper is None:
+        raise RuntimeError("Expected both left and right GripperTriggerOrPinchRetargeter instances.")
+    return wrist_retargeter, left_gripper, right_gripper, [type(retargeter).__name__ for retargeter in retargeters]
 
 
-def retarget_action(wrist_retargeter, gripper_retargeter, raw_data: dict) -> torch.Tensor:
-    action = torch.cat([wrist_retargeter.retarget(raw_data), gripper_retargeter.retarget(raw_data)], dim=-1)
+def retarget_action(wrist_retargeter, left_gripper, right_gripper, raw_data: dict) -> torch.Tensor:
+    action = torch.cat(
+        [wrist_retargeter.retarget(raw_data), left_gripper.retarget(raw_data), right_gripper.retarget(raw_data)],
+        dim=-1,
+    )
     return action.unsqueeze(0)
 
 
@@ -118,18 +152,24 @@ def step_command(env, action: torch.Tensor, steps: int) -> None:
         env.step(action)
 
 
-def measure(robot, right_body_id: int, gripper_joint_ids: list[int], gripper_body_ids: list[int]) -> dict:
+def measure_side(robot, wrist_body_id: int, gripper_joint_ids: list[int], gripper_body_ids: list[int]) -> dict:
     gripper_body_pos = robot.data.body_pos_w[0, gripper_body_ids]
-    separation = torch.linalg.norm(gripper_body_pos[1] - gripper_body_pos[2]).item()
     return {
-        "right_wrist_pos_w": [
-            float(v) for v in robot.data.body_pos_w[0, right_body_id].detach().cpu().tolist()
-        ],
-        "gripper_joint_pos": [
-            float(v) for v in robot.data.joint_pos[0, gripper_joint_ids].detach().cpu().tolist()
-        ],
-        "finger_body_separation_m": float(separation),
+        "wrist_pos_w": [float(v) for v in robot.data.body_pos_w[0, wrist_body_id].detach().cpu().tolist()],
+        "gripper_joint_pos": [float(v) for v in robot.data.joint_pos[0, gripper_joint_ids].detach().cpu().tolist()],
+        "finger_body_separation_m": float(torch.linalg.norm(gripper_body_pos[1] - gripper_body_pos[2]).item()),
     }
+
+
+def measure(robot, left_body_id, right_body_id, left_joint_ids, right_joint_ids, left_body_ids, right_body_ids) -> dict:
+    return {
+        "left": measure_side(robot, left_body_id, left_joint_ids, left_body_ids),
+        "right": measure_side(robot, right_body_id, right_joint_ids, right_body_ids),
+    }
+
+
+def max_abs_error(values: list[float], target: float) -> float:
+    return max(abs(value - target) for value in values)
 
 
 def write_reports(report: dict) -> None:
@@ -141,7 +181,7 @@ def write_reports(report: dict) -> None:
     md_path.write_text(
         "\n".join(
             [
-                "# G1 Dex1 Motion Controller Retargeter Smoke Test",
+                "# G1 Dex1 Bilateral Motion Controller Retargeter Smoke Test",
                 "",
                 f"- Result: {'PASS' if report['passed'] else 'FAIL'}",
                 f"- Task: `{report['task']}`",
@@ -149,9 +189,12 @@ def write_reports(report: dict) -> None:
                 f"- Retargeted action shape: `{report['retargeted_action_shape']}`",
                 f"- Action terms: `{report['action_terms']}`",
                 f"- Action term dims: `{report['action_term_dims']}`",
+                f"- Left wrist displacement: `{report['left_wrist_displacement_m']:.6f} m`",
                 f"- Right wrist displacement: `{report['right_wrist_displacement_m']:.6f} m`",
-                f"- Gripper close max error: `{report['close_gripper_max_abs_error']:.6f} m`",
-                f"- Gripper reopen max error: `{report['reopen_gripper_max_abs_error']:.6f} m`",
+                f"- Left close max error: `{report['left_close_max_abs_error']:.6f} m`",
+                f"- Right close max error: `{report['right_close_max_abs_error']:.6f} m`",
+                f"- Left reopen max error: `{report['left_reopen_max_abs_error']:.6f} m`",
+                f"- Right reopen max error: `{report['right_reopen_max_abs_error']:.6f} m`",
                 "",
             ]
         ),
@@ -166,55 +209,75 @@ def main() -> None:
 
     try:
         robot = env.unwrapped.scene["robot"]
-        left_body_ids, left_body_names = robot.find_bodies([LEFT_WRIST_BODY], preserve_order=True)
-        right_body_ids, right_body_names = robot.find_bodies([RIGHT_WRIST_BODY], preserve_order=True)
-        gripper_joint_ids, gripper_joint_names = robot.find_joints(RIGHT_DEX1_GRIPPER_JOINTS, preserve_order=True)
-        gripper_body_ids, gripper_body_names = robot.find_bodies(RIGHT_DEX1_BODIES, preserve_order=True)
-        if len(left_body_ids) != 1 or len(right_body_ids) != 1:
-            raise RuntimeError(f"Could not resolve wrist bodies: {left_body_names=} {right_body_names=}")
+        left_wrist_ids, left_wrist_names = robot.find_bodies([LEFT_WRIST_BODY], preserve_order=True)
+        right_wrist_ids, right_wrist_names = robot.find_bodies([RIGHT_WRIST_BODY], preserve_order=True)
+        left_joint_ids, left_joint_names = robot.find_joints(LEFT_DEX1_GRIPPER_JOINTS, preserve_order=True)
+        right_joint_ids, right_joint_names = robot.find_joints(RIGHT_DEX1_GRIPPER_JOINTS, preserve_order=True)
+        left_body_ids, left_body_names = robot.find_bodies(LEFT_DEX1_BODIES, preserve_order=True)
+        right_body_ids, right_body_names = robot.find_bodies(RIGHT_DEX1_BODIES, preserve_order=True)
+        if len(left_wrist_ids) != 1 or len(right_wrist_ids) != 1:
+            raise RuntimeError(f"Could not resolve wrist bodies: {left_wrist_names=} {right_wrist_names=}")
 
-        left_pos, left_quat = body_pose_env_frame(env, robot, left_body_ids[0])
-        right_pos, right_quat = body_pose_env_frame(env, robot, right_body_ids[0])
-        left_pose = [*left_pos, *left_quat]
-        right_pose = [*right_pos, *right_quat]
-        wrist_retargeter, gripper_retargeter, configured_retargeters = make_retargeters_from_env_cfg(env_cfg)
+        _, left_quat = body_pose_env_frame(env, robot, left_wrist_ids[0])
+        _, right_quat = body_pose_env_frame(env, robot, right_wrist_ids[0])
+        wrist_retargeter, left_gripper, right_gripper, configured_retargeters = make_retargeters_from_env_cfg(env_cfg)
 
-        open_raw = make_controller_data([0.0, 0.0, 0.0], right_quat, trigger=0.0)
-        open_action = retarget_action(wrist_retargeter, gripper_retargeter, open_raw)
+        zero_left = [0.0, 0.0, 0.0]
+        zero_right = [0.0, 0.0, 0.0]
+        left_offset = [args_cli.left_offset_x, args_cli.left_offset_y, args_cli.left_offset_z]
+        right_offset = [args_cli.right_offset_x, args_cli.right_offset_y, args_cli.right_offset_z]
+
+        open_raw = make_controller_data(zero_left, left_quat, 0.0, zero_right, right_quat, 0.0)
+        open_action = retarget_action(wrist_retargeter, left_gripper, right_gripper, open_raw)
         step_command(env, open_action, args_cli.steps_per_command)
-        initial = measure(robot, right_body_ids[0], gripper_joint_ids, gripper_body_ids)
+        initial = measure(robot, left_wrist_ids[0], right_wrist_ids[0], left_joint_ids, right_joint_ids, left_body_ids, right_body_ids)
 
-        offset = [args_cli.right_offset_x, args_cli.right_offset_y, args_cli.right_offset_z]
-        close_raw = make_controller_data(offset, right_quat, trigger=1.0)
-        close_action = retarget_action(wrist_retargeter, gripper_retargeter, close_raw)
-        step_command(env, close_action, args_cli.steps_per_command)
-        moved_closed = measure(robot, right_body_ids[0], gripper_joint_ids, gripper_body_ids)
+        left_close_raw = make_controller_data(left_offset, left_quat, 1.0, zero_right, right_quat, 0.0)
+        left_close_action = retarget_action(wrist_retargeter, left_gripper, right_gripper, left_close_raw)
+        step_command(env, left_close_action, args_cli.steps_per_command)
+        left_closed = measure(robot, left_wrist_ids[0], right_wrist_ids[0], left_joint_ids, right_joint_ids, left_body_ids, right_body_ids)
 
-        reopen_raw = make_controller_data([0.0, 0.0, 0.0], right_quat, trigger=0.0)
-        reopen_action = retarget_action(wrist_retargeter, gripper_retargeter, reopen_raw)
+        right_close_raw = make_controller_data(zero_left, left_quat, 0.0, right_offset, right_quat, 1.0)
+        right_close_action = retarget_action(wrist_retargeter, left_gripper, right_gripper, right_close_raw)
+        step_command(env, right_close_action, args_cli.steps_per_command)
+        right_closed = measure(robot, left_wrist_ids[0], right_wrist_ids[0], left_joint_ids, right_joint_ids, left_body_ids, right_body_ids)
+
+        both_close_raw = make_controller_data(left_offset, left_quat, 1.0, right_offset, right_quat, 1.0)
+        both_close_action = retarget_action(wrist_retargeter, left_gripper, right_gripper, both_close_raw)
+        step_command(env, both_close_action, args_cli.steps_per_command)
+        both_closed = measure(robot, left_wrist_ids[0], right_wrist_ids[0], left_joint_ids, right_joint_ids, left_body_ids, right_body_ids)
+
+        reopen_raw = make_controller_data(zero_left, left_quat, 0.0, zero_right, right_quat, 0.0)
+        reopen_action = retarget_action(wrist_retargeter, left_gripper, right_gripper, reopen_raw)
         step_command(env, reopen_action, args_cli.steps_per_command)
-        reopened = measure(robot, right_body_ids[0], gripper_joint_ids, gripper_body_ids)
+        reopened = measure(robot, left_wrist_ids[0], right_wrist_ids[0], left_joint_ids, right_joint_ids, left_body_ids, right_body_ids)
 
-        initial_wrist = torch.tensor(initial["right_wrist_pos_w"])
-        moved_wrist = torch.tensor(moved_closed["right_wrist_pos_w"])
-        right_wrist_displacement = torch.linalg.norm(moved_wrist - initial_wrist).item()
+        left_displacement = torch.linalg.norm(
+            torch.tensor(left_closed["left"]["wrist_pos_w"]) - torch.tensor(initial["left"]["wrist_pos_w"])
+        ).item()
+        right_displacement = torch.linalg.norm(
+            torch.tensor(right_closed["right"]["wrist_pos_w"]) - torch.tensor(initial["right"]["wrist_pos_w"])
+        ).item()
 
-        close_target = [RIGHT_DEX1_CLOSE, RIGHT_DEX1_CLOSE]
-        open_target = [RIGHT_DEX1_OPEN, RIGHT_DEX1_OPEN]
-        close_errors = [
-            measured - target for measured, target in zip(moved_closed["gripper_joint_pos"], close_target)
-        ]
-        reopen_errors = [measured - target for measured, target in zip(reopened["gripper_joint_pos"], open_target)]
-        close_max_abs_error = max(abs(value) for value in close_errors)
-        reopen_max_abs_error = max(abs(value) for value in reopen_errors)
+        left_close_error = max_abs_error(left_closed["left"]["gripper_joint_pos"], LEFT_DEX1_CLOSE)
+        right_close_error = max_abs_error(right_closed["right"]["gripper_joint_pos"], RIGHT_DEX1_CLOSE)
+        both_left_close_error = max_abs_error(both_closed["left"]["gripper_joint_pos"], LEFT_DEX1_CLOSE)
+        both_right_close_error = max_abs_error(both_closed["right"]["gripper_joint_pos"], RIGHT_DEX1_CLOSE)
+        left_reopen_error = max_abs_error(reopened["left"]["gripper_joint_pos"], LEFT_DEX1_OPEN)
+        right_reopen_error = max_abs_error(reopened["right"]["gripper_joint_pos"], RIGHT_DEX1_OPEN)
 
         report = {
             "timestamp_utc": datetime.now(timezone.utc).isoformat(),
             "passed": (
                 tuple(open_action.shape) == env.action_space.shape
-                and right_wrist_displacement >= args_cli.wrist_motion_threshold
-                and close_max_abs_error <= args_cli.gripper_error_threshold
-                and reopen_max_abs_error <= args_cli.gripper_error_threshold
+                and left_displacement >= args_cli.wrist_motion_threshold
+                and right_displacement >= args_cli.wrist_motion_threshold
+                and left_close_error <= args_cli.gripper_error_threshold
+                and right_close_error <= args_cli.gripper_error_threshold
+                and both_left_close_error <= args_cli.gripper_error_threshold
+                and both_right_close_error <= args_cli.gripper_error_threshold
+                and left_reopen_error <= args_cli.gripper_error_threshold
+                and right_reopen_error <= args_cli.gripper_error_threshold
             ),
             "task": args_cli.task,
             "device": env.unwrapped.device,
@@ -222,33 +285,41 @@ def main() -> None:
             "observation_space": str(env.observation_space),
             "retargeted_action_shape": list(open_action.shape),
             "open_action": [float(v) for v in open_action[0].detach().cpu().tolist()],
-            "close_action": [float(v) for v in close_action[0].detach().cpu().tolist()],
+            "left_close_action": [float(v) for v in left_close_action[0].detach().cpu().tolist()],
+            "right_close_action": [float(v) for v in right_close_action[0].detach().cpu().tolist()],
+            "both_close_action": [float(v) for v in both_close_action[0].detach().cpu().tolist()],
             "reopen_action": [float(v) for v in reopen_action[0].detach().cpu().tolist()],
             "action_terms": env.unwrapped.action_manager.active_terms,
             "action_term_dims": env.unwrapped.action_manager.action_term_dim,
             "configured_motion_controller_retargeters": configured_retargeters,
-            "left_body_names": left_body_names,
-            "right_body_names": right_body_names,
-            "gripper_joint_names": gripper_joint_names,
-            "gripper_body_names": gripper_body_names,
-            "mock_right_controller_offset": offset,
-            "left_wrist_hold_pose": left_pose,
-            "right_wrist_default_pose": right_pose,
+            "left_wrist_names": left_wrist_names,
+            "right_wrist_names": right_wrist_names,
+            "left_gripper_joint_names": left_joint_names,
+            "right_gripper_joint_names": right_joint_names,
+            "left_gripper_body_names": left_body_names,
+            "right_gripper_body_names": right_body_names,
+            "mock_left_controller_offset": left_offset,
+            "mock_right_controller_offset": right_offset,
             "initial": initial,
-            "moved_closed": moved_closed,
+            "left_closed": left_closed,
+            "right_closed": right_closed,
+            "both_closed": both_closed,
             "reopened": reopened,
-            "right_wrist_displacement_m": float(right_wrist_displacement),
-            "close_gripper_errors": close_errors,
-            "close_gripper_max_abs_error": close_max_abs_error,
-            "reopen_gripper_errors": reopen_errors,
-            "reopen_gripper_max_abs_error": reopen_max_abs_error,
+            "left_wrist_displacement_m": float(left_displacement),
+            "right_wrist_displacement_m": float(right_displacement),
+            "left_close_max_abs_error": float(left_close_error),
+            "right_close_max_abs_error": float(right_close_error),
+            "both_left_close_max_abs_error": float(both_left_close_error),
+            "both_right_close_max_abs_error": float(both_right_close_error),
+            "left_reopen_max_abs_error": float(left_reopen_error),
+            "right_reopen_max_abs_error": float(right_reopen_error),
         }
         write_reports(report)
         print(f"[INFO] Wrote JSON report: {args_cli.out_json}")
         print(f"[INFO] Wrote Markdown report: {args_cli.out_md}")
         print(f"[INFO] Overall result: {'PASS' if report['passed'] else 'FAIL'}")
         print(f"[INFO] retargeted action shape: {tuple(open_action.shape)}")
-        print(f"[INFO] right wrist displacement: {right_wrist_displacement:.6f} m")
+        print(f"[INFO] left/right wrist displacement: {left_displacement:.6f} m / {right_displacement:.6f} m")
     finally:
         if not args_cli.skip_kit_cleanup:
             env.close()

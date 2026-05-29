@@ -21,10 +21,10 @@ class G1Dex1UpperBodyMotionControllerRetargeter(RetargeterBase):
 
     ``[left_wrist_pose(7), right_wrist_pose(7)]``.
 
-    Dex1 gripper trigger is intentionally handled by
-    :class:`GripperTriggerOrPinchRetargeter`, so the env receives:
+    Dex1 gripper triggers are intentionally handled by separate
+    :class:`GripperTriggerOrPinchRetargeter` instances, so the env receives:
 
-    ``[left wrist 7, right wrist 7] + [right gripper 1] = 15``.
+    ``[left wrist 7, right wrist 7] + [left gripper 1, right gripper 1] = 16``.
     """
 
     def __init__(self, cfg: G1Dex1UpperBodyMotionControllerRetargeterCfg):

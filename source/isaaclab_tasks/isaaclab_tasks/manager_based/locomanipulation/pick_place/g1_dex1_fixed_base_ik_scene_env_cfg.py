@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
-"""Fixed-base custom G1 Dex1 scene with upper-body Pink IK plus right gripper."""
+"""Fixed-base custom G1 Dex1 scene with upper-body Pink IK plus bilateral grippers."""
 
 from __future__ import annotations
 
@@ -34,6 +34,10 @@ from isaaclab_tasks.manager_based.locomanipulation.pick_place.g1_dex1_fixed_base
     G1Dex1FixedBaseSceneCfg,
 )
 from isaaclab_tasks.manager_based.locomanipulation.pick_place.g1_dex1_gripper_only_env_cfg import (
+    DEX1_GRIPPER_JOINTS,
+    LEFT_DEX1_CLOSE,
+    LEFT_DEX1_GRIPPER_JOINTS,
+    LEFT_DEX1_OPEN,
     RIGHT_DEX1_CLOSE,
     RIGHT_DEX1_GRIPPER_JOINTS,
     RIGHT_DEX1_OPEN,
@@ -116,11 +120,24 @@ G1_DEX1_UPPER_BODY_IK_ACTION_CFG = PinkInverseKinematicsActionCfg(
 
 @configclass
 class ActionsCfg:
-    """Upper-body IK plus a separate one-dimensional right gripper action."""
+    """Upper-body IK plus separate one-dimensional left and right gripper actions."""
 
     upper_body_ik = G1_DEX1_UPPER_BODY_IK_ACTION_CFG
 
-    gripper_action = mdp.BinaryJointPositionActionCfg(
+    left_gripper_action = mdp.BinaryJointPositionActionCfg(
+        asset_name="robot",
+        joint_names=LEFT_DEX1_GRIPPER_JOINTS,
+        open_command_expr={
+            "left_dex1_finger_joint_1": LEFT_DEX1_OPEN,
+            "left_dex1_finger_joint_2": LEFT_DEX1_OPEN,
+        },
+        close_command_expr={
+            "left_dex1_finger_joint_1": LEFT_DEX1_CLOSE,
+            "left_dex1_finger_joint_2": LEFT_DEX1_CLOSE,
+        },
+    )
+
+    right_gripper_action = mdp.BinaryJointPositionActionCfg(
         asset_name="robot",
         joint_names=RIGHT_DEX1_GRIPPER_JOINTS,
         open_command_expr={
@@ -150,7 +167,7 @@ class ObservationsCfg:
             func=mdp.joint_pos,
             params={
                 "asset_cfg": SceneEntityCfg(
-                    "robot", joint_names=RIGHT_DEX1_GRIPPER_JOINTS, preserve_order=True
+                    "robot", joint_names=DEX1_GRIPPER_JOINTS, preserve_order=True
                 )
             },
         )
@@ -175,7 +192,7 @@ class TerminationsCfg:
 
 @configclass
 class G1Dex1FixedBaseIKSceneEnvCfg(ManagerBasedRLEnvCfg):
-    """Fixed-base task scene with upper-body IK and right Dex1 gripper."""
+    """Fixed-base task scene with upper-body IK and bilateral Dex1 grippers."""
 
     scene: G1Dex1FixedBaseSceneCfg = G1Dex1FixedBaseSceneCfg(num_envs=1, env_spacing=2.5, replicate_physics=True)
     observations: ObservationsCfg = ObservationsCfg()
@@ -207,8 +224,9 @@ class G1Dex1FixedBaseIKSceneEnvCfg(ManagerBasedRLEnvCfg):
                 "motion_controllers": OpenXRDeviceCfg(
                     retargeters=[
                         G1Dex1UpperBodyMotionControllerRetargeterCfg(
+                            bound_left_controller=DeviceBase.TrackingTarget.CONTROLLER_LEFT,
                             bound_right_controller=DeviceBase.TrackingTarget.CONTROLLER_RIGHT,
-                            use_left_controller=False,
+                            use_left_controller=True,
                             use_controller_orientation=False,
                             left_wrist_default_pose=(
                                 0.20477421581745148,
@@ -228,6 +246,12 @@ class G1Dex1FixedBaseIKSceneEnvCfg(ManagerBasedRLEnvCfg):
                                 2.7558131478144787e-05,
                                 9.56020230660215e-05,
                             ),
+                            sim_device=self.sim.device,
+                        ),
+                        GripperTriggerOrPinchRetargeterCfg(
+                            bound_hand=DeviceBase.TrackingTarget.HAND_LEFT,
+                            bound_controller=DeviceBase.TrackingTarget.CONTROLLER_LEFT,
+                            controller_threshold=0.5,
                             sim_device=self.sim.device,
                         ),
                         GripperTriggerOrPinchRetargeterCfg(

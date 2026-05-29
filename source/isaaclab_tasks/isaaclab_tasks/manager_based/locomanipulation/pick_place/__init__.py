@@ -15,6 +15,7 @@ from . import (
     g1_dex1_fixed_base_ik_scene_env_cfg,
     g1_dex1_fixed_base_scene_env_cfg,
     g1_dex1_gripper_only_env_cfg,
+    g1_dex1_stack_cube_reachability_env_cfg,
     locomanipulation_g1_env_cfg,
 )
 
@@ -60,6 +61,15 @@ gym.register(
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     kwargs={
         "env_cfg_entry_point": g1_dex1_fixed_base_ik_scene_env_cfg.G1Dex1FixedBaseIKSceneEnvCfg,
+    },
+    disable_env_checker=True,
+)
+
+gym.register(
+    id="Isaac-G1-Dex1-FixedBase-StackCube-Reachability-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    kwargs={
+        "env_cfg_entry_point": g1_dex1_stack_cube_reachability_env_cfg.G1Dex1FixedBaseStackCubeReachabilityEnvCfg,
     },
     disable_env_checker=True,
 )

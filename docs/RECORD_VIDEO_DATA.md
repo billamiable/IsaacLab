@@ -309,7 +309,7 @@ USE_RELATIVE_MODE=true ./isaaclab.sh -p scripts/tools/record_demos.py \
 
 ### 任务四：`Isaac-G1-Dex1-FixedBase-StackCube-Reachability-v0`（G1 Dex1 + Pico 双手柄）
 
-该任务用于先打通 G1 Dex1 的真实 Pico motion-controller pipeline；第一轮实测不要求完成物理抓取或堆叠成功，`success` termination 主要用于后续 `record_demos.py` 自动导出。当前链路为：
+该任务用于打通 G1 Dex1 的真实 Pico motion-controller pipeline，并直接用 `record_demos.py` 录制数据。第一轮实测不要求完成物理抓取或堆叠成功；默认录制策略为 `EXPORT_SUCCEEDED_ONLY`，只有 `success` 连续满足后才会导出有效 demo。当前链路为：
 
 ```text
 Pico motion controllers
@@ -325,11 +325,48 @@ Pico motion controllers
 | 手柄位姿 | 左/右 Pico controller 分别驱动 G1 左/右 wrist 的 Pink IK 目标 |
 | 夹爪 | 左/右 trigger 超过默认阈值 `0.5` 时，分别闭合左/右 Dex1；松开后张开 |
 | 场景 | 固定下半身 G1 Dex1 + table + 3 个 Nucleus block USD（blue/red/green）；当前主要用于 reachability 和 pipeline 联调 |
-| 成功判定 | 已加 `success` termination：沿用 Franka block stack 语义，`height_diff=0.0468`，`cube_2` 叠到 `cube_1`、`cube_3` 叠到 `cube_2`，且 Dex1 gripper joints 全部处于 open |
+| 成功判定 | 已加 `success` termination：沿用 Franka block stack 语义，`height_diff=0.0468`，`cube_2` 叠到 `cube_1`、`cube_3` 叠到 `cube_2`，且 Dex1 gripper joints 全部处于 open。若未完成该条件，遥操仍可运行，但不会导出成功 demo |
 
-#### 仅遥操联调（推荐先跑）
+#### 实机录制入口（推荐）
 
 容器内 `/workspace/isaaclab` 执行：
+
+```bash
+./isaaclab.sh -p scripts/tools/record_demos.py \
+  --task Isaac-G1-Dex1-FixedBase-StackCube-Reachability-v0 \
+  --teleop_device motion_controllers \
+  --enable_pinocchio \
+  --device cuda:0 \
+  --headless \
+  --info \
+  --dataset_file ./datasets/g1_dex1_pico_motion_controllers.hdf5 \
+  --num_demos 0 \
+  --num_success_steps 10
+```
+
+`--num_demos 0` 表示持续运行，直到手动停止。`record_demos.py` 与 `teleop_se3_agent.py` 使用同一套 `motion_controllers` 输入、retargeter 和 action pipeline；区别是 `record_demos.py` 会在满足 success 条件后把 episode 导出到 HDF5。
+
+宿主机也可以不进入容器，直接用 `docker exec` 启动录制：
+
+```bash
+docker exec -it -w /workspace/isaaclab isaac-lab-232 ./isaaclab.sh \
+  -p scripts/tools/record_demos.py \
+  --task Isaac-G1-Dex1-FixedBase-StackCube-Reachability-v0 \
+  --teleop_device motion_controllers \
+  --enable_pinocchio \
+  --device cuda:0 \
+  --headless \
+  --info \
+  --dataset_file ./datasets/g1_dex1_pico_motion_controllers.hdf5 \
+  --num_demos 0 \
+  --num_success_steps 10
+```
+
+XR/motion-controller 模式下，`record_demos.py` 默认等待客户端发出 `start` 后才真正应用动作并开始记录。若 Pico 已连接但机器人不动，优先检查 WebXR/CloudXR 客户端是否已发送 start；reset/stop 同理走 OpenXR teleop command。
+
+#### 仅遥操联调（可选）
+
+如果只想调试输入链路、不需要 HDF5，可改用 `teleop_se3_agent.py`：
 
 ```bash
 ./isaaclab.sh -p scripts/environments/teleoperation/teleop_se3_agent.py \
@@ -345,38 +382,6 @@ Pico motion controllers
 
 ```bash
 --task Isaac-G1-Dex1-FixedBase-IK-Scene-v0
-```
-
-XR/motion-controller 模式下，`teleop_se3_agent.py` 默认等待客户端发出 `start` 后才真正应用动作。若 Pico 已连接但机器人不动，优先检查 WebXR/CloudXR 客户端是否已发送 start；reset/stop 同理走 OpenXR teleop command。
-
-#### 录制 HDF5（success 后自动导出）
-
-当前任务已经有 `success` termination。`record_demos.py` 会在连续满足 `--num_success_steps` 后，把当前 episode 标记为成功并导出到 HDF5。第一轮实测仍建议先用上一节的 `teleop_se3_agent.py` 走通 Pico action pipeline，再切到录制命令。
-
-```bash
-./isaaclab.sh -p scripts/tools/record_demos.py \
-  --task Isaac-G1-Dex1-FixedBase-StackCube-Reachability-v0 \
-  --teleop_device motion_controllers \
-  --enable_pinocchio \
-  --device cuda:0 \
-  --headless \
-  --info \
-  --dataset_file ./datasets/g1_dex1_pico_motion_controllers.hdf5 \
-  --num_demos 0 \
-  --num_success_steps 10
-```
-
-宿主机也可以不进入容器，直接用 `docker exec` 启动联调：
-
-```bash
-docker exec -it -w /workspace/isaaclab isaac-lab-232 ./isaaclab.sh \
-  -p scripts/environments/teleoperation/teleop_se3_agent.py \
-  --task Isaac-G1-Dex1-FixedBase-StackCube-Reachability-v0 \
-  --teleop_device motion_controllers \
-  --enable_pinocchio \
-  --device cuda:0 \
-  --headless \
-  --info
 ```
 
 ---

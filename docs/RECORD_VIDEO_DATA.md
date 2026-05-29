@@ -11,8 +11,8 @@
 | npm | v11.6.2 |
 | Dockerfile | `Dockerfile.2.3.2` |
 | 镜像 Tag | `isaac-lab-teleop:2.3.2` |
-| 文档内任务 | 任务一：`Isaac-PickPlace-GR1T2-Abs-v0`；任务二：`Isaac-Stack-Cube-Galbot-Left-Arm-Gripper-Visuomotor-v0`；任务三：`Isaac-Stack-Cube-Franka-IK-Abs-v0`（motion controllers） |
-| 遥操设备 | handtracking / **`motion_controllers`**（右手柄位姿 + 扳机夹爪；详见任务三）(Pico 4 Ultra) |
+| 文档内任务 | 任务一：`Isaac-PickPlace-GR1T2-Abs-v0`；任务二：`Isaac-Stack-Cube-Galbot-Left-Arm-Gripper-Visuomotor-v0`；任务三：`Isaac-Stack-Cube-Franka-IK-Abs-v0`（motion controllers）；任务四：`Isaac-G1-Dex1-FixedBase-StackCube-Reachability-v0`（G1 Dex1 + Pico motion controllers） |
+| 遥操设备 | handtracking / **`motion_controllers`**（Pico 4 Ultra 手柄位姿 + trigger 夹爪；任务三为右手 Franka，任务四为 G1 Dex1 双手） |
 
 ---
 
@@ -216,6 +216,7 @@ docker exec -it isaac-lab-232 /bin/bash
 - **任务一（GR1 PickPlace）**：`record_demos` 示例带 `--headless`（该任务默认不录相机观测时可常用）。若出现与 **2.3** 类似的 XR /渲染报错，可去掉 `--headless` 改走 GUI。
 - **任务二（Galbot Visuomotor）**：需 **`--enable_cameras`** 写入图像，**不要**加 `--headless`（见 **2.3**）。
 - **任务三（Franka IK Abs + motion controllers）**：与任务一类似走 **`--headless`** 即可；无需 `--enable_pinocchio`（微分 IK）。
+- **任务四（G1 Dex1 + motion controllers）**：先以 pipeline 联调为主，走 **`--headless`**，但必须加 **`--enable_pinocchio`**（Pink IK）。
 
 以下命令均在容器内 `/workspace/isaaclab` 执行（`./isaaclab.sh`）。
 
@@ -306,6 +307,80 @@ USE_RELATIVE_MODE=true ./isaaclab.sh -p scripts/tools/record_demos.py \
 
 ---
 
+### 任务四：`Isaac-G1-Dex1-FixedBase-StackCube-Reachability-v0`（G1 Dex1 + Pico 双手柄）
+
+该任务用于先打通 G1 Dex1 的真实 Pico motion-controller pipeline；第一轮实测不要求完成物理抓取或堆叠成功，`success` termination 主要用于后续 `record_demos.py` 自动导出。当前链路为：
+
+```text
+Pico motion controllers
+→ OpenXRDevice
+→ G1Dex1UpperBodyMotionControllerRetargeter
+→ Pink IK upper_body_ik
+→ left/right GripperTriggerOrPinchRetargeter
+→ left/right Dex1 gripper action
+```
+
+| 项目 | 说明 |
+|------|------|
+| 手柄位姿 | 左/右 Pico controller 分别驱动 G1 左/右 wrist 的 Pink IK 目标 |
+| 夹爪 | 左/右 trigger 超过默认阈值 `0.5` 时，分别闭合左/右 Dex1；松开后张开 |
+| 场景 | 固定下半身 G1 Dex1 + table + 3 个 Nucleus block USD（blue/red/green）；当前主要用于 reachability 和 pipeline 联调 |
+| 成功判定 | 已加 `success` termination：沿用 Franka block stack 语义，`height_diff=0.0468`，`cube_2` 叠到 `cube_1`、`cube_3` 叠到 `cube_2`，且 Dex1 gripper joints 全部处于 open |
+
+#### 仅遥操联调（推荐先跑）
+
+容器内 `/workspace/isaaclab` 执行：
+
+```bash
+./isaaclab.sh -p scripts/environments/teleoperation/teleop_se3_agent.py \
+  --task Isaac-G1-Dex1-FixedBase-StackCube-Reachability-v0 \
+  --teleop_device motion_controllers \
+  --enable_pinocchio \
+  --device cuda:0 \
+  --headless \
+  --info
+```
+
+如果只想先测无 stack-cube 的干净 G1 Dex1 场景，可把任务换成：
+
+```bash
+--task Isaac-G1-Dex1-FixedBase-IK-Scene-v0
+```
+
+XR/motion-controller 模式下，`teleop_se3_agent.py` 默认等待客户端发出 `start` 后才真正应用动作。若 Pico 已连接但机器人不动，优先检查 WebXR/CloudXR 客户端是否已发送 start；reset/stop 同理走 OpenXR teleop command。
+
+#### 录制 HDF5（success 后自动导出）
+
+当前任务已经有 `success` termination。`record_demos.py` 会在连续满足 `--num_success_steps` 后，把当前 episode 标记为成功并导出到 HDF5。第一轮实测仍建议先用上一节的 `teleop_se3_agent.py` 走通 Pico action pipeline，再切到录制命令。
+
+```bash
+./isaaclab.sh -p scripts/tools/record_demos.py \
+  --task Isaac-G1-Dex1-FixedBase-StackCube-Reachability-v0 \
+  --teleop_device motion_controllers \
+  --enable_pinocchio \
+  --device cuda:0 \
+  --headless \
+  --info \
+  --dataset_file ./datasets/g1_dex1_pico_motion_controllers.hdf5 \
+  --num_demos 0 \
+  --num_success_steps 10
+```
+
+宿主机也可以不进入容器，直接用 `docker exec` 启动联调：
+
+```bash
+docker exec -it -w /workspace/isaaclab isaac-lab-232 ./isaaclab.sh \
+  -p scripts/environments/teleoperation/teleop_se3_agent.py \
+  --task Isaac-G1-Dex1-FixedBase-StackCube-Reachability-v0 \
+  --teleop_device motion_controllers \
+  --enable_pinocchio \
+  --device cuda:0 \
+  --headless \
+  --info
+```
+
+---
+
 ## 7. 导出录制数据
 
 录制完成后，在**宿主机**上进入希望存放数据的目录，将 HDF5（以及若已生成的视频目录）从容器拷出：
@@ -332,7 +407,7 @@ docker cp isaac-lab-232:/workspace/isaaclab/videos_for_cosmos/ ./videos_for_cosm
      │
 服务端终端 4: docker exec 进入容器，按任务运行 teleop_se3_agent / record_demos.py
      │
-Pico 4 Ultra: 浏览器访问 https://<服务器IP> → 连接 CloudXR → 手部追踪遥操作
+Pico 4 Ultra: 浏览器访问 https://<服务器IP> → 连接 CloudXR → handtracking 或 motion controllers 遥操作
      │
 可选:        容器内对 HDF5 运行 hdf5_to_mp4.py → 得到按相机拆分的 MP4
      │

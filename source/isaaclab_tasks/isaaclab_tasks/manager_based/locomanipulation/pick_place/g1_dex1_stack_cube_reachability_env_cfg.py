@@ -16,14 +16,16 @@ from __future__ import annotations
 
 import isaaclab.envs.mdp as mdp
 import isaaclab.sim as sim_utils
+import torch
 from isaaclab.assets import AssetBaseCfg, RigidObjectCfg
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
 from isaaclab.managers import ObservationTermCfg as ObsTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.scene import InteractiveSceneCfg
-from isaaclab.sim.spawners.from_files.from_files_cfg import GroundPlaneCfg
+from isaaclab.sim.spawners.from_files.from_files_cfg import GroundPlaneCfg, UsdFileCfg
 from isaaclab.utils import configclass
+from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 
 from isaaclab_tasks.manager_based.locomanipulation.pick_place.g1_dex1_fixed_base_ik_scene_env_cfg import (
     ActionsCfg,
@@ -32,18 +34,86 @@ from isaaclab_tasks.manager_based.locomanipulation.pick_place.g1_dex1_fixed_base
 from isaaclab_tasks.manager_based.locomanipulation.pick_place.g1_dex1_gripper_only_env_cfg import (
     DEX1_GRIPPER_JOINTS,
     G1_DEX1_GRIPPER_ONLY_CFG,
+    RIGHT_DEX1_OPEN,
 )
 from isaaclab_tasks.manager_based.locomanipulation.pick_place import mdp as locomanip_mdp
 from isaaclab_tasks.manager_based.manipulation.pick_place import mdp as manip_mdp
 
 
-CUBE_SIZE = 0.05
-TABLE_CENTER = (0.36, 0.0, 0.895)
+BLOCK_HEIGHT_DIFF = 0.0468
+BLOCK_CENTER_Z_OFFSET = 0.0203
+TABLE_CENTER = (0.36, 0.0, 0.78)
 TABLE_SIZE = (0.82, 0.72, 0.06)
 TABLE_TOP_Z = TABLE_CENTER[2] + TABLE_SIZE[2] * 0.5
-CUBE_CENTER_Z = TABLE_TOP_Z + CUBE_SIZE * 0.5
+BLOCK_CENTER_Z = TABLE_TOP_Z + BLOCK_CENTER_Z_OFFSET
 RIGHT_REACH_CUBE = "cube_1"
 LEFT_REACH_CUBE = "cube_2"
+
+
+def _block_spawn(block_file: str, semantic_class: str) -> UsdFileCfg:
+    return UsdFileCfg(
+        usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/Blocks/{block_file}",
+        scale=(1.0, 1.0, 1.0),
+        rigid_props=sim_utils.RigidBodyPropertiesCfg(
+            solver_position_iteration_count=16,
+            solver_velocity_iteration_count=1,
+            max_angular_velocity=1000.0,
+            max_linear_velocity=1000.0,
+            max_depenetration_velocity=5.0,
+            disable_gravity=False,
+        ),
+        semantic_tags=[("class", semantic_class)],
+    )
+
+
+def g1_dex1_cubes_stacked(
+    env,
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    cube_1_cfg: SceneEntityCfg = SceneEntityCfg("cube_1"),
+    cube_2_cfg: SceneEntityCfg = SceneEntityCfg("cube_2"),
+    cube_3_cfg: SceneEntityCfg = SceneEntityCfg("cube_3"),
+    xy_threshold: float = 0.04,
+    height_threshold: float = 0.005,
+    height_diff: float = BLOCK_HEIGHT_DIFF,
+    atol: float = 0.0001,
+    rtol: float = 0.0001,
+):
+    """Check Franka-style cube stacking success with all configured Dex1 gripper joints open."""
+
+    robot = env.scene[robot_cfg.name]
+    cube_1 = env.scene[cube_1_cfg.name]
+    cube_2 = env.scene[cube_2_cfg.name]
+    cube_3 = env.scene[cube_3_cfg.name]
+
+    pos_diff_c12 = cube_1.data.root_pos_w - cube_2.data.root_pos_w
+    pos_diff_c23 = cube_2.data.root_pos_w - cube_3.data.root_pos_w
+
+    xy_dist_c12 = torch.norm(pos_diff_c12[:, :2], dim=1)
+    xy_dist_c23 = torch.norm(pos_diff_c23[:, :2], dim=1)
+    h_dist_c12 = torch.norm(pos_diff_c12[:, 2:], dim=1)
+    h_dist_c23 = torch.norm(pos_diff_c23[:, 2:], dim=1)
+
+    stacked = torch.logical_and(xy_dist_c12 < xy_threshold, xy_dist_c23 < xy_threshold)
+    stacked = torch.logical_and(h_dist_c12 - height_diff < height_threshold, stacked)
+    stacked = torch.logical_and(pos_diff_c12[:, 2] < 0.0, stacked)
+    stacked = torch.logical_and(h_dist_c23 - height_diff < height_threshold, stacked)
+    stacked = torch.logical_and(pos_diff_c23[:, 2] < 0.0, stacked)
+
+    if not hasattr(env.cfg, "gripper_joint_names"):
+        raise ValueError("No gripper_joint_names found in environment config")
+
+    gripper_joint_ids, _ = robot.find_joints(env.cfg.gripper_joint_names, preserve_order=True)
+    if len(gripper_joint_ids) == 0:
+        raise ValueError("No gripper joints matched gripper_joint_names")
+
+    open_target = torch.tensor(env.cfg.gripper_open_val, dtype=torch.float32, device=env.device)
+    gripper_open = torch.ones_like(stacked)
+    for joint_id in gripper_joint_ids:
+        gripper_open = torch.logical_and(
+            torch.isclose(robot.data.joint_pos[:, joint_id], open_target, atol=atol, rtol=rtol),
+            gripper_open,
+        )
+    return torch.logical_and(stacked, gripper_open)
 
 
 @configclass
@@ -65,59 +135,20 @@ class G1Dex1StackCubeReachabilitySceneCfg(InteractiveSceneCfg):
 
     cube_1 = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Cube_1",
-        spawn=sim_utils.CuboidCfg(
-            size=(CUBE_SIZE, CUBE_SIZE, CUBE_SIZE),
-            rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                solver_position_iteration_count=16,
-                solver_velocity_iteration_count=1,
-                max_angular_velocity=1000.0,
-                max_linear_velocity=1000.0,
-                max_depenetration_velocity=5.0,
-                disable_gravity=False,
-            ),
-            collision_props=sim_utils.CollisionPropertiesCfg(),
-            mass_props=sim_utils.MassPropertiesCfg(mass=0.04),
-            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.05, 0.20, 0.95), roughness=0.45),
-        ),
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.34, -0.16, CUBE_CENTER_Z), rot=(1.0, 0.0, 0.0, 0.0)),
+        spawn=_block_spawn("blue_block.usd", "cube_1"),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.34, -0.16, BLOCK_CENTER_Z), rot=(1.0, 0.0, 0.0, 0.0)),
     )
 
     cube_2 = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Cube_2",
-        spawn=sim_utils.CuboidCfg(
-            size=(CUBE_SIZE, CUBE_SIZE, CUBE_SIZE),
-            rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                solver_position_iteration_count=16,
-                solver_velocity_iteration_count=1,
-                max_angular_velocity=1000.0,
-                max_linear_velocity=1000.0,
-                max_depenetration_velocity=5.0,
-                disable_gravity=False,
-            ),
-            collision_props=sim_utils.CollisionPropertiesCfg(),
-            mass_props=sim_utils.MassPropertiesCfg(mass=0.04),
-            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.95, 0.08, 0.05), roughness=0.45),
-        ),
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.34, 0.16, CUBE_CENTER_Z), rot=(1.0, 0.0, 0.0, 0.0)),
+        spawn=_block_spawn("red_block.usd", "cube_2"),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.34, 0.16, BLOCK_CENTER_Z), rot=(1.0, 0.0, 0.0, 0.0)),
     )
 
     cube_3 = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Cube_3",
-        spawn=sim_utils.CuboidCfg(
-            size=(CUBE_SIZE, CUBE_SIZE, CUBE_SIZE),
-            rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                solver_position_iteration_count=16,
-                solver_velocity_iteration_count=1,
-                max_angular_velocity=1000.0,
-                max_linear_velocity=1000.0,
-                max_depenetration_velocity=5.0,
-                disable_gravity=False,
-            ),
-            collision_props=sim_utils.CollisionPropertiesCfg(),
-            mass_props=sim_utils.MassPropertiesCfg(mass=0.04),
-            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.05, 0.75, 0.20), roughness=0.45),
-        ),
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.48, 0.0, CUBE_CENTER_Z), rot=(1.0, 0.0, 0.0, 0.0)),
+        spawn=_block_spawn("green_block.usd", "cube_3"),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.48, 0.0, BLOCK_CENTER_Z), rot=(1.0, 0.0, 0.0, 0.0)),
     )
 
     ground = AssetBaseCfg(
@@ -170,6 +201,7 @@ class TerminationsCfg:
     """Basic terminations for the stack-cube reachability scene."""
 
     time_out = DoneTerm(func=locomanip_mdp.time_out, time_out=True)
+    success = DoneTerm(func=g1_dex1_cubes_stacked)
     cube_1_dropping = DoneTerm(
         func=mdp.root_height_below_minimum, params={"minimum_height": 0.2, "asset_cfg": SceneEntityCfg("cube_1")}
     )
@@ -195,5 +227,8 @@ class G1Dex1FixedBaseStackCubeReachabilityEnvCfg(G1Dex1FixedBaseIKSceneEnvCfg):
     def __post_init__(self):
         super().__post_init__()
         self.episode_length_s = 20.0
+        self.gripper_joint_names = DEX1_GRIPPER_JOINTS
+        self.gripper_open_val = RIGHT_DEX1_OPEN
+        self.gripper_threshold = 0.005
         self.viewer.eye = (2.8, -2.4, 1.8)
         self.viewer.lookat = (0.34, 0.0, 0.92)

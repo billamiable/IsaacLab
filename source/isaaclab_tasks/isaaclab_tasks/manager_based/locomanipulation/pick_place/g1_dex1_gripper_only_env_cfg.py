@@ -34,9 +34,10 @@ from isaaclab.sim.spawners.from_files.from_files_cfg import GroundPlaneCfg
 from isaaclab.utils import configclass
 
 
+G1_DEX1_ASSET_DIR = os.environ.get("G1_DEX1_ASSET_DIR", "/workspace/isaaclab/docs/g1_dex1_assets")
 G1_DEX1_USD_PATH = os.environ.get(
     "G1_DEX1_USD_PATH",
-    "/workspace/host/RobotLearningLab_Dataset/usecase/humanoid_teleop/g1_29dof_dex1_1_v4_test_good.usd",
+    os.path.join(G1_DEX1_ASSET_DIR, "g1_29dof_dex1_1_v4_test_good.usd"),
 )
 LEFT_DEX1_GRIPPER_JOINTS = ["left_dex1_finger_joint_1", "left_dex1_finger_joint_2"]
 RIGHT_DEX1_GRIPPER_JOINTS = ["right_dex1_finger_joint_1", "right_dex1_finger_joint_2"]

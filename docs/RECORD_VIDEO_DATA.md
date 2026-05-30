@@ -322,12 +322,24 @@ Pico motion controllers
 
 | 项目 | 说明 |
 |------|------|
-| 手柄位姿 | 左/右 Pico controller 分别驱动 G1 左/右 wrist 的 Pink IK 目标 |
+| 手柄位姿 | 左/右 Pico controller 使用绝对 OpenXR/Isaac 世界位置，分别作为 G1 左/右 wrist 的 Pink IK 目标；不再把 controller 高度叠加到默认 wrist pose 上 |
 | 夹爪 | 左/右 trigger 超过默认阈值 `0.5` 时，分别闭合左/右 Dex1；松开后张开 |
 | 场景 | 固定下半身 G1 Dex1 + table + 3 个 Nucleus block USD（blue/red/green）；当前主要用于 reachability 和 pipeline 联调 |
+| G1 Dex1 资产 | 默认随 IsaacLab 仓库一起读取：`/workspace/isaaclab/docs/g1_dex1_assets/`；当前已裁剪到约 90M：v4 仿真 USD 及验证必要的 composition 依赖、Pink IK URDF、40 个 URDF 实际引用 mesh；详见 `docs/g1_dex1_assets/README.md`；不再依赖额外挂载 `/workspace/host` |
+| XR 高度 | G1 Dex1 使用动态 anchor 到 `/World/envs/env_0/Robot/pelvis`，`anchor_pos.z=-1.0`，让仿真地面接近 Pico 物理地面；若进入后仍觉得机器人过高/过低，优先微调 `g1_dex1_fixed_base_ik_scene_env_cfg.py` 里的 `XrCfg(anchor_pos=(0.0, 0.0, ...))` |
 | 成功判定 | 已加 `success` termination：沿用 Franka block stack 语义，`height_diff=0.0468`，`cube_2` 叠到 `cube_1`、`cube_3` 叠到 `cube_2`，且 Dex1 gripper joints 全部处于 open。若未完成该条件，遥操仍可运行，但不会导出成功 demo |
 
 #### 实机录制入口（推荐）
+
+启动前可先确认容器内资产可见：
+
+```bash
+docker exec isaac-lab-232 test -f /workspace/isaaclab/docs/g1_dex1_assets/g1_29dof_dex1_1_v4_test_good.usd
+docker exec isaac-lab-232 test -f /workspace/isaaclab/docs/g1_dex1_assets/g1_29dof_mode_15_with_dex1_1.urdf
+docker exec isaac-lab-232 test -d /workspace/isaaclab/docs/g1_dex1_assets/meshes
+```
+
+三条命令无输出且返回码为 0 即正常。若使用其它资产目录，可通过 `G1_DEX1_ASSET_DIR`，或分别通过 `G1_DEX1_USD_PATH`、`G1_DEX1_KINEMATICS_URDF_PATH`、`G1_DEX1_KINEMATICS_MESH_PATH` 覆盖默认路径。
 
 容器内 `/workspace/isaaclab` 执行：
 

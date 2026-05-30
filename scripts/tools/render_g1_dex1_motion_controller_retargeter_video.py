@@ -375,15 +375,15 @@ def main() -> None:
         right_joint_ids, right_joint_names = robot.find_joints(RIGHT_DEX1_GRIPPER_JOINTS, preserve_order=True)
         left_body_ids, left_body_names = robot.find_bodies(LEFT_DEX1_BODIES, preserve_order=True)
         right_body_ids, right_body_names = robot.find_bodies(RIGHT_DEX1_BODIES, preserve_order=True)
-        _, left_quat = body_pose_env_frame(env, robot, left_wrist_ids[0])
-        _, right_quat = body_pose_env_frame(env, robot, right_wrist_ids[0])
+        left_default_pos, left_quat = body_pose_env_frame(env, robot, left_wrist_ids[0])
+        right_default_pos, right_quat = body_pose_env_frame(env, robot, right_wrist_ids[0])
         wrist_retargeter, left_gripper, right_gripper, configured_retargeters = make_retargeters_from_env_cfg(env_cfg)
         left_offset_peak = torch.tensor([args_cli.left_offset_x, args_cli.left_offset_y, args_cli.left_offset_z], dtype=torch.float32)
         right_offset_peak = torch.tensor([args_cli.right_offset_x, args_cli.right_offset_y, args_cli.right_offset_z], dtype=torch.float32)
 
         set_global_camera_pose(env, robot, global_camera)
         for _ in range(args_cli.warmup_steps):
-            raw = make_controller_data([0.0, 0.0, 0.0], left_quat, 0.0, [0.0, 0.0, 0.0], right_quat, 0.0)
+            raw = make_controller_data(left_default_pos, left_quat, 0.0, right_default_pos, right_quat, 0.0)
             env.step(retarget_action(wrist_retargeter, left_gripper, right_gripper, raw))
         initial = measure(robot, left_wrist_ids[0], right_wrist_ids[0], left_joint_ids, right_joint_ids, left_body_ids, right_body_ids)
 
@@ -398,7 +398,9 @@ def main() -> None:
             left_offset, right_offset, left_trigger, right_trigger, phase, progress = trajectory_command(
                 frame, args_cli.frames, left_offset_peak, right_offset_peak
             )
-            raw = make_controller_data(left_offset, left_quat, left_trigger, right_offset, right_quat, right_trigger)
+            left_target_pos = [left_default_pos[i] + float(left_offset[i]) for i in range(3)]
+            right_target_pos = [right_default_pos[i] + float(right_offset[i]) for i in range(3)]
+            raw = make_controller_data(left_target_pos, left_quat, left_trigger, right_target_pos, right_quat, right_trigger)
             action = retarget_action(wrist_retargeter, left_gripper, right_gripper, raw)
             set_close_camera_pose(robot, left_body_ids, left_camera, "left")
             set_close_camera_pose(robot, right_body_ids, right_camera, "right")
@@ -419,6 +421,8 @@ def main() -> None:
                     "mock_right_trigger": float(right_trigger),
                     "mock_left_controller_offset": [float(v) for v in left_offset],
                     "mock_right_controller_offset": [float(v) for v in right_offset],
+                    "mock_left_controller_position": [float(v) for v in left_target_pos],
+                    "mock_right_controller_position": [float(v) for v in right_target_pos],
                     "retargeted_action_shape": list(action.shape),
                     **measured,
                 }

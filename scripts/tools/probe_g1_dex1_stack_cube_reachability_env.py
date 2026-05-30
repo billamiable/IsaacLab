@@ -100,10 +100,10 @@ def _controller_packet(position: list[float], quat: list[float], trigger: float)
     return np.stack([pose, inputs])
 
 
-def make_controller_data(left_offset, left_quat, left_trigger, right_offset, right_quat, right_trigger) -> dict:
+def make_controller_data(left_position, left_quat, left_trigger, right_position, right_quat, right_trigger) -> dict:
     return {
-        DeviceBase.TrackingTarget.CONTROLLER_LEFT: _controller_packet(left_offset, left_quat, left_trigger),
-        DeviceBase.TrackingTarget.CONTROLLER_RIGHT: _controller_packet(right_offset, right_quat, right_trigger),
+        DeviceBase.TrackingTarget.CONTROLLER_LEFT: _controller_packet(left_position, left_quat, left_trigger),
+        DeviceBase.TrackingTarget.CONTROLLER_RIGHT: _controller_packet(right_position, right_quat, right_trigger),
     }
 
 
@@ -235,25 +235,28 @@ def main() -> None:
         right_target = make_target(right_cube_pos, args_cli.approach_height)
         left_offset = to_list(left_target - left_default_pos)
         right_offset = to_list(right_target - right_default_pos)
-        zero = [0.0, 0.0, 0.0]
+        left_default_position = to_list(left_default_pos)
+        right_default_position = to_list(right_default_pos)
+        left_target_position = to_list(left_target)
+        right_target_position = to_list(right_target)
 
-        open_raw = make_controller_data(zero, left_quat, 0.0, zero, right_quat, 0.0)
+        open_raw = make_controller_data(left_default_position, left_quat, 0.0, right_default_position, right_quat, 0.0)
         open_action = retarget_action(wrist_retargeter, left_gripper, right_gripper, open_raw)
         step_command(env, open_action, args_cli.steps_per_command)
 
-        right_raw = make_controller_data(zero, left_quat, 0.0, right_offset, right_quat, 0.0)
+        right_raw = make_controller_data(left_default_position, left_quat, 0.0, right_target_position, right_quat, 0.0)
         right_action = retarget_action(wrist_retargeter, left_gripper, right_gripper, right_raw)
         step_command(env, right_action, args_cli.steps_per_command)
         right_approach = measure_side(robot, right_wrist_ids[0], right_joint_ids, right_body_ids)
         right_metrics = target_metrics(env, right_approach["wrist_pos_w"], args_cli.right_cube, right_target)
 
-        left_raw = make_controller_data(left_offset, left_quat, 0.0, zero, right_quat, 0.0)
+        left_raw = make_controller_data(left_target_position, left_quat, 0.0, right_default_position, right_quat, 0.0)
         left_action = retarget_action(wrist_retargeter, left_gripper, right_gripper, left_raw)
         step_command(env, left_action, args_cli.steps_per_command)
         left_approach = measure_side(robot, left_wrist_ids[0], left_joint_ids, left_body_ids)
         left_metrics = target_metrics(env, left_approach["wrist_pos_w"], args_cli.left_cube, left_target)
 
-        both_close_raw = make_controller_data(left_offset, left_quat, 1.0, right_offset, right_quat, 1.0)
+        both_close_raw = make_controller_data(left_target_position, left_quat, 1.0, right_target_position, right_quat, 1.0)
         both_close_action = retarget_action(wrist_retargeter, left_gripper, right_gripper, both_close_raw)
         step_command(env, both_close_action, args_cli.steps_per_command)
         left_closed = measure_side(robot, left_wrist_ids[0], left_joint_ids, left_body_ids)
@@ -264,7 +267,7 @@ def main() -> None:
         left_close_error = max_abs_error(left_closed["gripper_joint_pos"], LEFT_DEX1_CLOSE)
         right_close_error = max_abs_error(right_closed["gripper_joint_pos"], RIGHT_DEX1_CLOSE)
 
-        reopen_raw = make_controller_data(zero, left_quat, 0.0, zero, right_quat, 0.0)
+        reopen_raw = make_controller_data(left_default_position, left_quat, 0.0, right_default_position, right_quat, 0.0)
         reopen_action = retarget_action(wrist_retargeter, left_gripper, right_gripper, reopen_raw)
         step_command(env, reopen_action, args_cli.steps_per_command)
         left_reopened = measure_side(robot, left_wrist_ids[0], left_joint_ids, left_body_ids)
@@ -306,6 +309,10 @@ def main() -> None:
             "right_default_wrist_pos_env": to_list(right_default_pos),
             "left_controller_offset": left_offset,
             "right_controller_offset": right_offset,
+            "left_controller_default_position": left_default_position,
+            "right_controller_default_position": right_default_position,
+            "left_controller_target_position": left_target_position,
+            "right_controller_target_position": right_target_position,
             "cube_positions_env": {
                 "cube_1": to_list(cube_pos_env(env, "cube_1")),
                 "cube_2": to_list(cube_pos_env(env, "cube_2")),

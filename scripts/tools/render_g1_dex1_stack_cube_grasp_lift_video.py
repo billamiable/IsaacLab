@@ -170,14 +170,13 @@ def _controller_packet(position: list[float], quat: list[float], trigger: float)
     return np.stack([pose, inputs])
 
 
-def make_controller_data(active_offset, active_quat, active_trigger, inactive_quat) -> dict:
-    zero = [0.0, 0.0, 0.0]
+def make_controller_data(active_position, active_quat, active_trigger, inactive_position, inactive_quat) -> dict:
     if args_cli.side == "left":
-        left = _controller_packet(active_offset, active_quat, active_trigger)
-        right = _controller_packet(zero, inactive_quat, 0.0)
+        left = _controller_packet(active_position, active_quat, active_trigger)
+        right = _controller_packet(inactive_position, inactive_quat, 0.0)
     else:
-        left = _controller_packet(zero, inactive_quat, 0.0)
-        right = _controller_packet(active_offset, active_quat, active_trigger)
+        left = _controller_packet(inactive_position, inactive_quat, 0.0)
+        right = _controller_packet(active_position, active_quat, active_trigger)
     return {DeviceBase.TrackingTarget.CONTROLLER_LEFT: left, DeviceBase.TrackingTarget.CONTROLLER_RIGHT: right}
 
 
@@ -322,11 +321,11 @@ def side_config(robot):
     return wrist_ids[0], wrist_names, body_ids, body_names, joint_ids, joint_names, close_target, open_target
 
 
-def inactive_quat(env, robot) -> list[float]:
+def inactive_pose(env, robot) -> tuple[list[float], list[float]]:
     wrist_name = RIGHT_WRIST_BODY if args_cli.side == "left" else LEFT_WRIST_BODY
     wrist_ids, _ = robot.find_bodies([wrist_name], preserve_order=True)
-    _, quat = body_pose_env_frame(env, robot, wrist_ids[0])
-    return quat
+    pos, quat = body_pose_env_frame(env, robot, wrist_ids[0])
+    return to_list(pos), quat
 
 
 def measure(env, robot, wrist_id: int, joint_ids: list[int], body_ids: list[int], cube_name: str) -> dict:
@@ -353,18 +352,17 @@ def make_trajectory(default_wrist: torch.Tensor, grasp_wrist: torch.Tensor) -> l
     lift_wrist = grasp_wrist + torch.tensor([0.0, 0.0, args_cli.lift_height], device=grasp_wrist.device)
     retreat_wrist = lift_wrist + torch.tensor([args_cli.retreat_x, 0.0, 0.0], device=grasp_wrist.device)
 
-    def offset(wrist_target: torch.Tensor) -> list[float]:
-        return to_list(wrist_target - default_wrist)
+    def target(wrist_target: torch.Tensor) -> list[float]:
+        return to_list(wrist_target)
 
-    zero = [0.0, 0.0, 0.0]
     return [
-        (0.00, zero, 0.0, "home_open"),
-        (0.20, offset(pregrasp_wrist), 0.0, "pregrasp_above_open"),
-        (0.45, offset(grasp_wrist), 0.0, "descend_to_cube_open"),
-        (0.58, offset(grasp_wrist), 1.0, "close_on_cube"),
-        (0.78, offset(lift_wrist), 1.0, "lift_closed"),
-        (0.88, offset(retreat_wrist), 1.0, "retreat_closed"),
-        (1.00, offset(retreat_wrist), 0.0, "reopen_after_lift"),
+        (0.00, target(default_wrist), 0.0, "home_open"),
+        (0.20, target(pregrasp_wrist), 0.0, "pregrasp_above_open"),
+        (0.45, target(grasp_wrist), 0.0, "descend_to_cube_open"),
+        (0.58, target(grasp_wrist), 1.0, "close_on_cube"),
+        (0.78, target(lift_wrist), 1.0, "lift_closed"),
+        (0.88, target(retreat_wrist), 1.0, "retreat_closed"),
+        (1.00, target(retreat_wrist), 0.0, "reopen_after_lift"),
     ]
 
 
@@ -420,12 +418,12 @@ def main() -> None:
         cube_camera = env.unwrapped.scene.sensors["cube_close_cam"]
         wrist_id, wrist_names, body_ids, body_names, joint_ids, joint_names, close_target, open_target = side_config(robot)
         default_wrist, active_quat = body_pose_env_frame(env, robot, wrist_id)
-        inactive_controller_quat = inactive_quat(env, robot)
+        inactive_default_position, inactive_controller_quat = inactive_pose(env, robot)
         wrist_retargeter, left_gripper, right_gripper, configured_retargeters = make_retargeters_from_env_cfg(env_cfg)
 
         set_global_camera_pose(env, robot, global_camera)
         for _ in range(args_cli.warmup_steps):
-            raw = make_controller_data([0.0, 0.0, 0.0], active_quat, 0.0, inactive_controller_quat)
+            raw = make_controller_data(to_list(default_wrist), active_quat, 0.0, inactive_default_position, inactive_controller_quat)
             env.step(retarget_action(wrist_retargeter, left_gripper, right_gripper, raw))
 
         default_wrist, active_quat = body_pose_env_frame(env, robot, wrist_id)
@@ -449,8 +447,8 @@ def main() -> None:
         key_frame_indices = {0, args_cli.frames // 4, args_cli.frames // 2, (args_cli.frames * 3) // 4, args_cli.frames - 1}
         frame_records = []
         for frame in range(args_cli.frames):
-            active_offset, active_trigger, phase, progress = interpolate_keyframes(frame, args_cli.frames, keyframes)
-            raw = make_controller_data(active_offset, active_quat, active_trigger, inactive_controller_quat)
+            active_position, active_trigger, phase, progress = interpolate_keyframes(frame, args_cli.frames, keyframes)
+            raw = make_controller_data(active_position, active_quat, active_trigger, inactive_default_position, inactive_controller_quat)
             action = retarget_action(wrist_retargeter, left_gripper, right_gripper, raw)
             set_gripper_camera_pose(env, robot, body_ids, gripper_camera)
             set_cube_camera_pose(env, robot, body_ids, args_cli.cube, cube_camera)
@@ -468,7 +466,8 @@ def main() -> None:
                     "frame": frame,
                     "progress": float(progress),
                     "phase": phase,
-                    "mock_active_controller_offset": [float(v) for v in active_offset],
+                    "mock_active_controller_position": [float(v) for v in active_position],
+                    "mock_active_controller_offset": [float(active_position[i] - default_wrist[i].item()) for i in range(3)],
                     "mock_active_trigger": float(active_trigger),
                     "cube_lift_m": float(cube_lift),
                     "retargeted_action_shape": list(action.shape),

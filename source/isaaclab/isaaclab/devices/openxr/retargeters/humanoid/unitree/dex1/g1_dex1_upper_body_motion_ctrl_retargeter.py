@@ -25,6 +25,11 @@ class G1Dex1UpperBodyMotionControllerRetargeter(RetargeterBase):
     :class:`GripperTriggerOrPinchRetargeter` instances, so the env receives:
 
     ``[left wrist 7, right wrist 7] + [left gripper 1, right gripper 1] = 16``.
+
+    By default, controller positions are treated as absolute OpenXR/Isaac world
+    positions. This matches the humanoid hand-tracking retargeters used by
+    GR1T2/Unitree and avoids adding the controller height on top of the robot's
+    default wrist pose.
     """
 
     def __init__(self, cfg: G1Dex1UpperBodyMotionControllerRetargeterCfg):
@@ -72,18 +77,16 @@ class G1Dex1UpperBodyMotionControllerRetargeter(RetargeterBase):
         *,
         enabled: bool,
     ) -> np.ndarray:
-        """Map one controller pose to one wrist pose.
-
-        The first version uses relative controller translation around a configured
-        origin. This keeps the robot wrist near its configured default pose and
-        avoids requiring exact OpenXR world coordinates during headless tests.
-        """
+        """Map one controller pose to one wrist pose."""
         if not enabled or not self._controller_pose_available(controller_data):
             return default_pose.copy()
 
         pose = controller_data[DeviceBase.MotionControllerDataRowIndex.POSE.value].astype(np.float32)
         output = default_pose.copy()
-        output[:3] = default_pose[:3] + (pose[:3] - origin_pose[:3]) * float(self._cfg.position_scale)
+        if self._cfg.use_absolute_controller_position:
+            output[:3] = pose[:3]
+        else:
+            output[:3] = default_pose[:3] + (pose[:3] - origin_pose[:3]) * float(self._cfg.position_scale)
         if self._cfg.use_controller_orientation:
             output[3:] = pose[3:]
         return output
@@ -103,6 +106,7 @@ class G1Dex1UpperBodyMotionControllerRetargeterCfg(RetargeterCfg):
     bound_left_controller: DeviceBase.TrackingTarget = DeviceBase.TrackingTarget.CONTROLLER_LEFT
     bound_right_controller: DeviceBase.TrackingTarget = DeviceBase.TrackingTarget.CONTROLLER_RIGHT
     use_left_controller: bool = False
+    use_absolute_controller_position: bool = True
     use_controller_orientation: bool = False
     position_scale: float = 1.0
     left_wrist_default_pose: tuple[float, float, float, float, float, float, float] = (

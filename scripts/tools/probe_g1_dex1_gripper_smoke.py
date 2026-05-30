@@ -15,7 +15,7 @@ Example:
 
     ./isaaclab.sh -p scripts/tools/probe_g1_dex1_gripper_smoke.py \
         --headless \
-        --usd /workspace/host/RobotLearningLab_Dataset/usecase/humanoid_teleop/g1_29dof_dex1_1_v4_test_good.usd
+        --usd /workspace/isaaclab/docs/g1_dex1_assets/g1_29dof_dex1_1_v4_test_good.usd
 
 """
 
@@ -27,7 +27,7 @@ from isaaclab.app import AppLauncher
 
 
 DEFAULT_USD_PATH = (
-    "/workspace/host/RobotLearningLab_Dataset/usecase/humanoid_teleop/"
+    "/workspace/isaaclab/docs/g1_dex1_assets/"
     "g1_29dof_dex1_1_v4_test_good.usd"
 )
 DEFAULT_OUT_JSON = "/workspace/host/out/g1_dex1_right_gripper_smoke.json"

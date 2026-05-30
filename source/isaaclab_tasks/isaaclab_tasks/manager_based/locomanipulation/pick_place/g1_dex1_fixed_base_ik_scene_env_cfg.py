@@ -45,14 +45,12 @@ from isaaclab_tasks.manager_based.locomanipulation.pick_place.g1_dex1_gripper_on
 from isaaclab_tasks.manager_based.manipulation.pick_place import mdp as manip_mdp
 
 
+G1_DEX1_ASSET_DIR = os.environ.get("G1_DEX1_ASSET_DIR", "/workspace/isaaclab/docs/g1_dex1_assets")
 G1_DEX1_KINEMATICS_URDF_PATH = os.environ.get(
     "G1_DEX1_KINEMATICS_URDF_PATH",
-    "/workspace/host/unitree_ros/robots/g1_description/g1_29dof_mode_15_with_dex1_1.urdf",
+    os.path.join(G1_DEX1_ASSET_DIR, "g1_29dof_mode_15_with_dex1_1.urdf"),
 )
-G1_DEX1_KINEMATICS_MESH_PATH = os.environ.get(
-    "G1_DEX1_KINEMATICS_MESH_PATH",
-    "/workspace/host/unitree_ros/robots/g1_description",
-)
+G1_DEX1_KINEMATICS_MESH_PATH = os.environ.get("G1_DEX1_KINEMATICS_MESH_PATH", G1_DEX1_ASSET_DIR)
 
 
 G1_DEX1_UPPER_BODY_IK_CONTROLLER_CFG = PinkIKControllerCfg(
@@ -203,7 +201,7 @@ class G1Dex1FixedBaseIKSceneEnvCfg(ManagerBasedRLEnvCfg):
     commands = None
     curriculum = None
 
-    xr: XrCfg = XrCfg(anchor_pos=(0.0, 0.0, -0.45), anchor_rot=(1.0, 0.0, 0.0, 0.0))
+    xr: XrCfg = XrCfg(anchor_pos=(0.0, 0.0, -1.0), anchor_rot=(1.0, 0.0, 0.0, 0.0))
 
     def __post_init__(self):
         self.decimation = 4

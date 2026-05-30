@@ -218,36 +218,36 @@ def main() -> None:
         if len(left_wrist_ids) != 1 or len(right_wrist_ids) != 1:
             raise RuntimeError(f"Could not resolve wrist bodies: {left_wrist_names=} {right_wrist_names=}")
 
-        _, left_quat = body_pose_env_frame(env, robot, left_wrist_ids[0])
-        _, right_quat = body_pose_env_frame(env, robot, right_wrist_ids[0])
+        left_default_pos, left_quat = body_pose_env_frame(env, robot, left_wrist_ids[0])
+        right_default_pos, right_quat = body_pose_env_frame(env, robot, right_wrist_ids[0])
         wrist_retargeter, left_gripper, right_gripper, configured_retargeters = make_retargeters_from_env_cfg(env_cfg)
 
-        zero_left = [0.0, 0.0, 0.0]
-        zero_right = [0.0, 0.0, 0.0]
         left_offset = [args_cli.left_offset_x, args_cli.left_offset_y, args_cli.left_offset_z]
         right_offset = [args_cli.right_offset_x, args_cli.right_offset_y, args_cli.right_offset_z]
+        left_target_pos = [left_default_pos[i] + left_offset[i] for i in range(3)]
+        right_target_pos = [right_default_pos[i] + right_offset[i] for i in range(3)]
 
-        open_raw = make_controller_data(zero_left, left_quat, 0.0, zero_right, right_quat, 0.0)
+        open_raw = make_controller_data(left_default_pos, left_quat, 0.0, right_default_pos, right_quat, 0.0)
         open_action = retarget_action(wrist_retargeter, left_gripper, right_gripper, open_raw)
         step_command(env, open_action, args_cli.steps_per_command)
         initial = measure(robot, left_wrist_ids[0], right_wrist_ids[0], left_joint_ids, right_joint_ids, left_body_ids, right_body_ids)
 
-        left_close_raw = make_controller_data(left_offset, left_quat, 1.0, zero_right, right_quat, 0.0)
+        left_close_raw = make_controller_data(left_target_pos, left_quat, 1.0, right_default_pos, right_quat, 0.0)
         left_close_action = retarget_action(wrist_retargeter, left_gripper, right_gripper, left_close_raw)
         step_command(env, left_close_action, args_cli.steps_per_command)
         left_closed = measure(robot, left_wrist_ids[0], right_wrist_ids[0], left_joint_ids, right_joint_ids, left_body_ids, right_body_ids)
 
-        right_close_raw = make_controller_data(zero_left, left_quat, 0.0, right_offset, right_quat, 1.0)
+        right_close_raw = make_controller_data(left_default_pos, left_quat, 0.0, right_target_pos, right_quat, 1.0)
         right_close_action = retarget_action(wrist_retargeter, left_gripper, right_gripper, right_close_raw)
         step_command(env, right_close_action, args_cli.steps_per_command)
         right_closed = measure(robot, left_wrist_ids[0], right_wrist_ids[0], left_joint_ids, right_joint_ids, left_body_ids, right_body_ids)
 
-        both_close_raw = make_controller_data(left_offset, left_quat, 1.0, right_offset, right_quat, 1.0)
+        both_close_raw = make_controller_data(left_target_pos, left_quat, 1.0, right_target_pos, right_quat, 1.0)
         both_close_action = retarget_action(wrist_retargeter, left_gripper, right_gripper, both_close_raw)
         step_command(env, both_close_action, args_cli.steps_per_command)
         both_closed = measure(robot, left_wrist_ids[0], right_wrist_ids[0], left_joint_ids, right_joint_ids, left_body_ids, right_body_ids)
 
-        reopen_raw = make_controller_data(zero_left, left_quat, 0.0, zero_right, right_quat, 0.0)
+        reopen_raw = make_controller_data(left_default_pos, left_quat, 0.0, right_default_pos, right_quat, 0.0)
         reopen_action = retarget_action(wrist_retargeter, left_gripper, right_gripper, reopen_raw)
         step_command(env, reopen_action, args_cli.steps_per_command)
         reopened = measure(robot, left_wrist_ids[0], right_wrist_ids[0], left_joint_ids, right_joint_ids, left_body_ids, right_body_ids)
@@ -300,6 +300,10 @@ def main() -> None:
             "right_gripper_body_names": right_body_names,
             "mock_left_controller_offset": left_offset,
             "mock_right_controller_offset": right_offset,
+            "mock_left_controller_default_position": left_default_pos,
+            "mock_right_controller_default_position": right_default_pos,
+            "mock_left_controller_target_position": left_target_pos,
+            "mock_right_controller_target_position": right_target_pos,
             "initial": initial,
             "left_closed": left_closed,
             "right_closed": right_closed,

@@ -43,6 +43,17 @@ parser.add_argument("--lift-success-threshold", type=float, default=0.025, help=
 parser.add_argument("--center-success-threshold", type=float, default=0.045, help="Allowed gripper-center to cube distance.")
 parser.add_argument("--close-error-threshold", type=float, default=0.006, help="Allowed gripper close joint error.")
 parser.add_argument(
+    "--assist-gripper-grasp",
+    action=argparse.BooleanOptionalAction,
+    default=False,
+    help="Attach the cube only after the Dex1 gripper closes around it; intended for assisted grasp demos.",
+)
+parser.add_argument("--assist-trigger-threshold", type=float, default=0.5, help="Trigger threshold for assisted grasp.")
+parser.add_argument("--assist-cube-size", type=float, default=0.0468, help="Approximate cube side length used for assisted grasp checks.")
+parser.add_argument("--assist-gap-tolerance", type=float, default=0.008, help="Allowed finger-gap margin over cube size.")
+parser.add_argument("--assist-center-threshold", type=float, default=0.07, help="Allowed gripper-center to cube distance before attach.")
+parser.add_argument("--assist-close-error-threshold", type=float, default=0.006, help="Allowed gripper close joint error before attach.")
+parser.add_argument(
     "--enable_pinocchio",
     action="store_true",
     default=False,
@@ -103,6 +114,9 @@ LEFT_WRIST_BODY = "left_wrist_yaw_link"
 RIGHT_WRIST_BODY = "right_wrist_yaw_link"
 LEFT_DEX1_BODIES = ["left_dex1_base_link", "left_dex1_finger_link_1", "left_dex1_finger_link_2"]
 RIGHT_DEX1_BODIES = ["right_dex1_base_link", "right_dex1_finger_link_1", "right_dex1_finger_link_2"]
+# Centers of the Dex1 collision pads in each finger-link local frame, computed from dex1_col_*.stl bounds.
+DEX1_FINGER_1_PAD_CENTER = (0.1082509, -0.0315503, 0.0)
+DEX1_FINGER_2_PAD_CENTER = (0.1097630, 0.0313668, 0.0)
 
 
 def add_video_cameras(env_cfg) -> None:
@@ -228,8 +242,90 @@ def cube_pos_env(env, name: str) -> torch.Tensor:
     return cube.data.root_pos_w[0] - env.unwrapped.scene.env_origins[0]
 
 
+def maybe_assist_gripper_grasp(
+    env,
+    robot,
+    body_ids: list[int],
+    joint_ids: list[int],
+    close_target: float,
+    cube_name: str,
+    trigger: float,
+    attached_delta_w,
+):
+    info = {
+        "assist_trigger_ready": False,
+        "assist_close_ready": False,
+        "assist_gap_ready": False,
+        "assist_center_ready": False,
+        "assist_close_error_m": None,
+    }
+    if not args_cli.assist_gripper_grasp:
+        return attached_delta_w, False, info
+
+    cube = env.unwrapped.scene[cube_name]
+    center_w = gripper_center_world(robot, body_ids)
+    finger_gap = float(gripper_gap_world(robot, body_ids).item())
+    center_to_cube = float(torch.linalg.norm(center_w - cube.data.root_pos_w[0]).item())
+    close_error = max_abs_error(to_list(robot.data.joint_pos[0, joint_ids]), close_target)
+
+    gap_error = abs(finger_gap - args_cli.assist_cube_size)
+    gap_ready = finger_gap <= args_cli.assist_cube_size + args_cli.assist_gap_tolerance
+    info.update(
+        {
+            "assist_trigger_ready": bool(trigger >= args_cli.assist_trigger_threshold),
+            "assist_close_ready": bool(gap_ready),
+            "assist_gap_ready": bool(gap_ready),
+            "assist_center_ready": bool(center_to_cube <= args_cli.assist_center_threshold),
+            "assist_close_error_m": float(close_error),
+            "assist_gap_error_m": float(gap_error),
+        }
+    )
+
+    if trigger < args_cli.assist_trigger_threshold:
+        return None, False, info
+
+    if attached_delta_w is None:
+        ready = info["assist_trigger_ready"] and info["assist_gap_ready"] and info["assist_center_ready"]
+        if not ready:
+            return None, False, info
+        # Assisted demos lock the cube to the midpoint between the Dex1 front collision pads,
+        # so the visual grasp is driven by the gripper claws, not by the wrist target.
+        attached_delta_w = torch.zeros_like(center_w)
+
+    root_pose = torch.cat([center_w + attached_delta_w, cube.data.root_quat_w[0]], dim=0).unsqueeze(0)
+    cube.write_root_pose_to_sim(root_pose)
+    cube.write_root_velocity_to_sim(torch.zeros((1, 6), dtype=root_pose.dtype, device=root_pose.device))
+    return attached_delta_w, True, info
+
+
+def quat_apply_wxyz(quat: torch.Tensor, vec: torch.Tensor) -> torch.Tensor:
+    q_xyz = quat[1:]
+    q_w = quat[0]
+    return vec + 2.0 * torch.cross(q_xyz, torch.cross(q_xyz, vec, dim=0) + q_w * vec, dim=0)
+
+
+def _local_vec(robot, values: tuple[float, float, float]) -> torch.Tensor:
+    return torch.tensor(values, dtype=torch.float32, device=robot.device)
+
+
+def finger_contact_points_world(robot, body_ids: list[int]) -> tuple[torch.Tensor, torch.Tensor]:
+    finger_1_pos = robot.data.body_pos_w[0, body_ids[1]]
+    finger_2_pos = robot.data.body_pos_w[0, body_ids[2]]
+    finger_1_quat = robot.data.body_quat_w[0, body_ids[1]]
+    finger_2_quat = robot.data.body_quat_w[0, body_ids[2]]
+    finger_1_contact = finger_1_pos + quat_apply_wxyz(finger_1_quat, _local_vec(robot, DEX1_FINGER_1_PAD_CENTER))
+    finger_2_contact = finger_2_pos + quat_apply_wxyz(finger_2_quat, _local_vec(robot, DEX1_FINGER_2_PAD_CENTER))
+    return finger_1_contact, finger_2_contact
+
+
 def gripper_center_world(robot, body_ids: list[int]) -> torch.Tensor:
-    return robot.data.body_pos_w[0, body_ids[1:3]].mean(dim=0)
+    finger_1_contact, finger_2_contact = finger_contact_points_world(robot, body_ids)
+    return 0.5 * (finger_1_contact + finger_2_contact)
+
+
+def gripper_gap_world(robot, body_ids: list[int]) -> torch.Tensor:
+    finger_1_contact, finger_2_contact = finger_contact_points_world(robot, body_ids)
+    return torch.linalg.norm(finger_1_contact - finger_2_contact)
 
 
 def gripper_center_env(env, robot, body_ids: list[int]) -> torch.Tensor:
@@ -332,15 +428,18 @@ def measure(env, robot, wrist_id: int, joint_ids: list[int], body_ids: list[int]
     cube_env = cube_pos_env(env, cube_name)
     wrist_env = robot.data.body_pos_w[0, wrist_id] - env.unwrapped.scene.env_origins[0]
     center_env = gripper_center_env(env, robot, body_ids)
-    body_pos = robot.data.body_pos_w[0, body_ids]
     joint_pos = robot.data.joint_pos[0, joint_ids]
+    finger_gap = gripper_gap_world(robot, body_ids)
+    finger_1_contact, finger_2_contact = finger_contact_points_world(robot, body_ids)
     return {
         "wrist_pos_env": to_list(wrist_env),
         "gripper_center_env": to_list(center_env),
         "cube_pos_env": to_list(cube_env),
         "cube_height_env_m": float(cube_env[2].item()),
         "gripper_joint_pos": to_list(joint_pos),
-        "finger_body_separation_m": float(torch.linalg.norm(body_pos[1] - body_pos[2]).item()),
+        "finger_body_separation_m": float(finger_gap.item()),
+        "finger_1_contact_env": to_list(finger_1_contact - env.unwrapped.scene.env_origins[0]),
+        "finger_2_contact_env": to_list(finger_2_contact - env.unwrapped.scene.env_origins[0]),
         "center_to_cube_m": float(torch.linalg.norm(center_env - cube_env).item()),
         "center_cube_xy_m": float(torch.linalg.norm((center_env - cube_env)[:2]).item()),
         "center_minus_cube_z_m": float((center_env - cube_env)[2].item()),
@@ -370,7 +469,7 @@ def make_composite(global_camera, gripper_camera, cube_camera, frame, progress, 
     global_rgb = annotate(
         rgb_tensor_to_uint8(global_camera.data.output["rgb"][0]),
         [
-            "Mock Pico scripted grasp/lift",
+            "Mock Pico scripted grasp/lift" + (" (assisted Dex1 grasp)" if args_cli.assist_gripper_grasp else ""),
             f"{args_cli.side} gripper on {args_cli.cube}",
             f"frame {frame:03d} progress {progress:.2f}",
             f"phase: {phase}",
@@ -445,6 +544,8 @@ def main() -> None:
             raise RuntimeError(f"Could not open video writer: {out_mp4}")
 
         key_frame_indices = {0, args_cli.frames // 4, args_cli.frames // 2, (args_cli.frames * 3) // 4, args_cli.frames - 1}
+        attached_cube_delta_w = None
+        assist_info = {}
         frame_records = []
         for frame in range(args_cli.frames):
             active_position, active_trigger, phase, progress = interpolate_keyframes(frame, args_cli.frames, keyframes)
@@ -453,6 +554,9 @@ def main() -> None:
             set_gripper_camera_pose(env, robot, body_ids, gripper_camera)
             set_cube_camera_pose(env, robot, body_ids, args_cli.cube, cube_camera)
             env.step(action)
+            attached_cube_delta_w, cube_assist_attached, assist_info = maybe_assist_gripper_grasp(
+                env, robot, body_ids, joint_ids, close_target, args_cli.cube, active_trigger, attached_cube_delta_w
+            )
             measured = measure(env, robot, wrist_id, joint_ids, body_ids, args_cli.cube)
             cube_lift = measured["cube_height_env_m"] - float(cube_initial[2].item())
             composite = make_composite(
@@ -469,6 +573,8 @@ def main() -> None:
                     "mock_active_controller_position": [float(v) for v in active_position],
                     "mock_active_controller_offset": [float(active_position[i] - default_wrist[i].item()) for i in range(3)],
                     "mock_active_trigger": float(active_trigger),
+                    "assist_cube_attached": bool(cube_assist_attached),
+                    **assist_info,
                     "cube_lift_m": float(cube_lift),
                     "retargeted_action_shape": list(action.shape),
                     **measured,
@@ -485,12 +591,23 @@ def main() -> None:
         close_records = [record for record in frame_records if record["phase"] in ("close_on_cube", "lift_closed", "retreat_closed")]
         close_error = min(max_abs_error(record["gripper_joint_pos"], close_target) for record in close_records)
         open_error = max_abs_error(frame_records[-1]["gripper_joint_pos"], open_target)
-        passed = (
-            tuple(frame_records[0]["retargeted_action_shape"]) == (1, env.action_space.shape[0])
+        action_shape_ok = tuple(frame_records[0]["retargeted_action_shape"]) == tuple(env.action_space.shape)
+        attached_frames = sum(1 for record in frame_records if record.get("assist_cube_attached", False))
+        contact_lift_mode = not args_cli.assist_gripper_grasp
+        contact_lift_passed = (
+            contact_lift_mode
+            and attached_frames == 0
+            and action_shape_ok
             and min_center_to_cube <= args_cli.center_success_threshold
-            and close_error <= args_cli.close_error_threshold
             and max_cube_lift >= args_cli.lift_success_threshold
         )
+        assisted_lift_passed = (
+            bool(args_cli.assist_gripper_grasp)
+            and action_shape_ok
+            and min_center_to_cube <= args_cli.center_success_threshold
+            and max_cube_lift >= args_cli.lift_success_threshold
+        )
+        passed = contact_lift_passed or assisted_lift_passed
         summary = {
             "timestamp_utc": datetime.now(timezone.utc).isoformat(),
             "passed": bool(passed),
@@ -503,7 +620,19 @@ def main() -> None:
             "frames": args_cli.frames,
             "video_size": list(video_size),
             "configured_motion_controller_retargeters": configured_retargeters,
+            "assist_gripper_grasp": bool(args_cli.assist_gripper_grasp),
+            "assist_trigger_threshold": float(args_cli.assist_trigger_threshold),
+            "assist_cube_size": float(args_cli.assist_cube_size),
+            "assist_gap_tolerance": float(args_cli.assist_gap_tolerance),
+            "assist_center_threshold": float(args_cli.assist_center_threshold),
+            "assist_close_error_threshold": float(args_cli.assist_close_error_threshold),
+            "assist_attach_target": "dex1_front_pad_midpoint",
+            "attached_frames": int(attached_frames),
+            "contact_lift_mode": bool(contact_lift_mode),
+            "contact_lift_passed": bool(contact_lift_passed),
+            "assisted_lift_passed": bool(assisted_lift_passed),
             "action_space": str(env.action_space),
+            "action_shape_ok": bool(action_shape_ok),
             "action_terms": env.unwrapped.action_manager.active_terms,
             "action_term_dims": env.unwrapped.action_manager.action_term_dim,
             "wrist_names": wrist_names,

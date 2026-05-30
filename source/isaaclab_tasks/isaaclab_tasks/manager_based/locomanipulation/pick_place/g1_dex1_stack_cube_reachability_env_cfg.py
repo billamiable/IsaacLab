@@ -14,6 +14,8 @@ move near a tabletop cube with the fixed-base humanoid height and table height.
 
 from __future__ import annotations
 
+import os
+
 import isaaclab.envs.mdp as mdp
 import isaaclab.sim as sim_utils
 import torch
@@ -42,10 +44,40 @@ from isaaclab_tasks.manager_based.manipulation.pick_place import mdp as manip_md
 
 BLOCK_HEIGHT_DIFF = 0.0468
 BLOCK_CENTER_Z_OFFSET = 0.0203
-TABLE_CENTER = (0.36, 0.0, 0.78)
-TABLE_SIZE = (0.82, 0.72, 0.06)
+
+
+def _env_float(name: str, default: float) -> float:
+    return float(os.environ.get(name, default))
+
+
+# The custom G1 Dex1 USD faces +X, so the table must start in front of the feet.
+TABLE_CENTER = (
+    _env_float("G1_DEX1_TABLE_CENTER_X", 0.58),
+    _env_float("G1_DEX1_TABLE_CENTER_Y", 0.0),
+    _env_float("G1_DEX1_TABLE_CENTER_Z", 0.78),
+)
+TABLE_SIZE = (
+    _env_float("G1_DEX1_TABLE_SIZE_X", 0.60),
+    _env_float("G1_DEX1_TABLE_SIZE_Y", 0.72),
+    _env_float("G1_DEX1_TABLE_SIZE_Z", 0.06),
+)
 TABLE_TOP_Z = TABLE_CENTER[2] + TABLE_SIZE[2] * 0.5
 BLOCK_CENTER_Z = TABLE_TOP_Z + BLOCK_CENTER_Z_OFFSET
+CUBE_1_POS = (
+    _env_float("G1_DEX1_CUBE_1_X", 0.50),
+    _env_float("G1_DEX1_CUBE_1_Y", -0.16),
+    _env_float("G1_DEX1_CUBE_1_Z", BLOCK_CENTER_Z),
+)
+CUBE_2_POS = (
+    _env_float("G1_DEX1_CUBE_2_X", 0.50),
+    _env_float("G1_DEX1_CUBE_2_Y", 0.16),
+    _env_float("G1_DEX1_CUBE_2_Z", BLOCK_CENTER_Z),
+)
+CUBE_3_POS = (
+    _env_float("G1_DEX1_CUBE_3_X", 0.64),
+    _env_float("G1_DEX1_CUBE_3_Y", 0.0),
+    _env_float("G1_DEX1_CUBE_3_Z", BLOCK_CENTER_Z),
+)
 RIGHT_REACH_CUBE = "cube_1"
 LEFT_REACH_CUBE = "cube_2"
 
@@ -136,19 +168,19 @@ class G1Dex1StackCubeReachabilitySceneCfg(InteractiveSceneCfg):
     cube_1 = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Cube_1",
         spawn=_block_spawn("blue_block.usd", "cube_1"),
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.34, -0.16, BLOCK_CENTER_Z), rot=(1.0, 0.0, 0.0, 0.0)),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=CUBE_1_POS, rot=(1.0, 0.0, 0.0, 0.0)),
     )
 
     cube_2 = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Cube_2",
         spawn=_block_spawn("red_block.usd", "cube_2"),
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.34, 0.16, BLOCK_CENTER_Z), rot=(1.0, 0.0, 0.0, 0.0)),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=CUBE_2_POS, rot=(1.0, 0.0, 0.0, 0.0)),
     )
 
     cube_3 = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Cube_3",
         spawn=_block_spawn("green_block.usd", "cube_3"),
-        init_state=RigidObjectCfg.InitialStateCfg(pos=(0.48, 0.0, BLOCK_CENTER_Z), rot=(1.0, 0.0, 0.0, 0.0)),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=CUBE_3_POS, rot=(1.0, 0.0, 0.0, 0.0)),
     )
 
     ground = AssetBaseCfg(

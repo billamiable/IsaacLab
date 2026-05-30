@@ -1,4 +1,4 @@
-# Isaac Lab Teleop - 录制遥操作数据（完整流程）
+| 输出 | 录制数据默认写入 `--dataset_file` 指定的 HDF5；若希望宿主机直接可见，可把路径设到 `/workspace/host/out/...` |# Isaac Lab Teleop - 录制遥操作数据（完整流程）
 
 ## 版本信息
 
@@ -65,31 +65,48 @@ xhost +local:
 
 ### 2.3 启动容器与 [yujie-dev](https://github.com/billamiable/IsaacLab/tree/yujie-dev) 代码
 
-镜像自带的是上游 Isaac Lab，**任务二**等需要本分支补丁时，任选下面一种方式与容器对齐：
+镜像自带的是上游 Isaac Lab。这里统一使用 bind mount，让容器直接使用本机 `yujie-dev` 代码；保存代码后容器内立即生效。
 
-- **方式 A：bind mount 本机已 clone 的仓库（下文 `docker run` 默认写法）**  
-  - **适用**：开发、频繁改 `yujie-dev`；希望保存后容器里**立刻**用到新代码；**任务二**直接依赖本机 policy/任务配置。  
-  - **做法**：`docker run` 保留 **`-v <your_isaaclab_repo_path>:/workspace/isaaclab`**。宿主机目录须为含 `isaaclab.sh`、`source/` 的仓库根（可先 `git clone`，见下）。  
-  - **额外一步（方式 A 专有，每个新容器做一次）**：挂载会**盖住**镜像里原来的 `/workspace/isaaclab`，纯 Git 克隆通常**没有** `_isaac_sim`。必须在容器内执行 **`ln -sfn /isaac-sim _isaac_sim`**（见下文命令），否则 `isaaclab.sh` 无法指向容器内的 Isaac Sim。
+需要准备两个宿主机路径：
 
-- **方式 B：不挂载，启动后 `docker cp` 拷贝补丁文件**  
-  - **适用**：不想把本机仓库路径挂进容器（例如交付/固定环境）；或只改**少量文件**即可。  
-  - **做法**：`docker run` 里**删掉** **`-v <your_isaaclab_repo_path>:/workspace/isaaclab \`** 整行，使用镜像内置 `/workspace/isaaclab`；容器运行后在**宿主机**把本机仓库中的文件 **`docker cp` 到容器内同相对路径**（见本节末尾示例）。**任务二**须把 `yujie-dev` 里相关改动都拷进去。  
-  - **一般无需 `ln`**：沿用镜像里原工作区，通常已有可用的 `_isaac_sim`。
-
-**`<your_isaaclab_repo_path>`**：本机 Isaac Lab 根目录的**绝对路径**，须与方式 A 中 `docker run -v` **左侧**一致。
-
-若尚无该目录，在**宿主机**克隆（最后一项为目标路径，**父目录须已存在**）：
+- `ISAAC_HOST`：本机 Isaac Lab 仓库根目录，挂载到 `/workspace/isaaclab`。
+- `TELEOP_OUT`：宿主机输出目录，挂载到 `/workspace/host/out`。
 
 ```bash
-git clone -b yujie-dev --single-branch https://github.com/billamiable/IsaacLab.git <your_isaaclab_repo_path>
+export ISAAC_HOST="<your_isaaclab_repo_path>"
+mkdir -p ./out
+export TELEOP_OUT="$PWD/out"
 ```
-
-已有仓库则 `cd` 到目录后 `git checkout yujie-dev && git pull`。
 
 容器默认 CMD 为 `sleep infinity`，启动后 CloudXR 会自动运行，不会自动跑遥操作脚本。
 
-**`docker run`（方式 A：含 mount；方式 B 请删除带 `<your_isaaclab_repo_path>` 的那一行）**：
+**开发持久模式**：
+
+```bash
+docker run -d \
+  --net host \
+  --runtime nvidia \
+  --gpus all \
+  -e ACCEPT_EULA=Y \
+  -e DISPLAY=$DISPLAY \
+  -e OMNI_KIT_ALLOW_ROOT=1 \
+  -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
+  -v isaac-cache-kit-232:/isaac-sim/kit/cache \
+  -v isaac-cache-ov-232:/root/.cache/ov \
+  -v "${ISAAC_HOST}:/workspace/isaaclab" \
+  -v "${TELEOP_OUT}:/workspace/host/out" \
+  --name isaac-lab-232 \
+  isaac-lab-teleop:2.3.2
+```
+
+适合开发阶段反复 `docker exec` 跑脚本、生成视频或进入容器调试。如需清理：
+
+```bash
+docker stop isaac-lab-232
+docker rm isaac-lab-232
+```
+
+**实机 Pico 干净模式**：
 
 ```bash
 docker run --rm -it \
@@ -102,16 +119,19 @@ docker run --rm -it \
   -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
   -v isaac-cache-kit-232:/isaac-sim/kit/cache \
   -v isaac-cache-ov-232:/root/.cache/ov \
-  -v <your_isaaclab_repo_path>:/workspace/isaaclab \
+  -v "${ISAAC_HOST}:/workspace/isaaclab" \
+  -v "${TELEOP_OUT}:/workspace/host/out" \
   --name isaac-lab-232 \
   isaac-lab-teleop:2.3.2
 ```
 
-**命名卷**：`isaac-cache-kit-232` → `/isaac-sim/kit/cache`；`isaac-cache-ov-232` → `/root/.cache/ov`，持久化缓存。
+`--rm -it` 适合真实设备测试前从干净容器启动；退出后容器会自动删除，不能再 `docker exec` 复用。
 
-**DISPLAY / GUI**：依赖 **2.2** 的 `xhost`。任务二 **`handtracking` + `--enable_cameras`** 勿再加 `--headless`（易出现 SyntheticData `LdrColorSD` 等报错及空图像张量）。`OMNI_KIT_ALLOW_ROOT=1` 供 root 跑 Kit。
+**命名卷**：`isaac-cache-kit-232` -> `/isaac-sim/kit/cache`；`isaac-cache-ov-232` -> `/root/.cache/ov`，持久化缓存。
 
-**方式 A：`ln -sfn` 建立 `_isaac_sim`（每个新容器执行一次）**
+**DISPLAY / GUI**：依赖 **2.2** 的 `xhost`。任务二 **`handtracking` + `--enable_cameras`** 勿再加 `--headless`。`OMNI_KIT_ALLOW_ROOT=1` 供 root 跑 Kit。
+
+**建立 `_isaac_sim`（每个新容器执行一次）**
 
 ```bash
 docker exec -it isaac-lab-232 /bin/bash
@@ -119,25 +139,11 @@ cd /workspace/isaaclab
 ln -sfn /isaac-sim _isaac_sim
 test -f _isaac_sim/VERSION && head -n1 _isaac_sim/VERSION
 ```
-
-能打印版本号即正常。方式 B 通常跳过本段。
-
 等待 CloudXR 就绪：
 
-```
+```text
 The NVIDIA(TM) CloudXR(TM) Runtime service has started.
 ```
-
-**方式 B：`docker cp` 示例（任务二常见补丁文件）**  
-容器须已运行，在**宿主机**执行：
-
-```bash
-ISAAC_HOST="<your_isaaclab_repo_path>"
-REL="source/isaaclab_tasks/isaaclab_tasks/manager_based/manipulation/stack/config/galbot/stack_rmp_rel_env_cfg.py"
-docker cp "${ISAAC_HOST}/${REL}" "isaac-lab-232:/workspace/isaaclab/${REL}"
-```
-
-`yujie-dev` 上其它改动对**相同相对路径**重复 `docker cp`。仅改 `.py` 时重跑 `record_demos` 即可，不必重建镜像。
 
 ---
 
@@ -209,7 +215,7 @@ npm run dev-server:https
 docker exec -it isaac-lab-232 /bin/bash
 ```
 
-**前提**：已按 **2.2** 开放 X11；已按 **2.3** 启动容器（含 `DISPLAY`）。若使用 **2.3 方式 A（mount）**，须完成 **`ln -sfn` → `_isaac_sim`**；若使用 **方式 B**，须已 **`docker cp`** 打入 **2.3** 所需补丁。GUI 与 headless 见 **2.3**。
+**前提**：已按 **2.2** 开放 X11；已按 **2.3** 启动容器（含 `DISPLAY`）。须完成 **`ln -sfn` -> `_isaac_sim`**。GUI 与 headless 见 **2.3**。
 
 **Headless 与任务对应关系**：
 
@@ -248,7 +254,7 @@ docker exec -it isaac-lab-232 /bin/bash
 
 ### 任务二：`Isaac-Stack-Cube-Galbot-Left-Arm-Gripper-Visuomotor-v0`（录制含相机）
 
-运行前须已让容器内代码为 [yujie-dev](https://github.com/billamiable/IsaacLab/tree/yujie-dev)：见 **2.3** — **方式 A** 为 mount + `_isaac_sim`；**方式 B** 为无 mount + **`docker cp`**。
+运行前须已按 **2.3** 使用 bind mount 让容器内代码为 [yujie-dev](https://github.com/billamiable/IsaacLab/tree/yujie-dev)，并完成 `_isaac_sim` 链接。
 
 Galbot RmpFlow 相对模式需设置 `USE_RELATIVE_MODE`；显式指定 GPU 与渲染质量，并开启相机写入观测。
 
@@ -309,37 +315,22 @@ USE_RELATIVE_MODE=true ./isaaclab.sh -p scripts/tools/record_demos.py \
 
 ### 任务四：`Isaac-G1-Dex1-FixedBase-StackCube-Reachability-v0`（G1 Dex1 + Pico 双手柄）
 
-该任务用于打通 G1 Dex1 的真实 Pico motion-controller pipeline，并直接用 `record_demos.py` 录制数据。第一轮实测不要求完成物理抓取或堆叠成功；默认录制策略为 `EXPORT_SUCCEEDED_ONLY`，只有 `success` 连续满足后才会导出有效 demo。当前链路为：
-
-```text
-Pico motion controllers
-→ OpenXRDevice
-→ G1Dex1UpperBodyMotionControllerRetargeter
-→ Pink IK upper_body_ik
-→ left/right GripperTriggerOrPinchRetargeter
-→ left/right Dex1 gripper action
-```
+该任务用于 G1 Dex1 的 Pico motion-controller 录制。场景是固定下半身 G1 Dex1、table、3 个 Nucleus block；左/右 Pico controller 分别控制左/右 wrist，左右 trigger 分别控制左右 Dex1 gripper。
 
 | 项目 | 说明 |
 |------|------|
-| 手柄位姿 | 左/右 Pico controller 使用绝对 OpenXR/Isaac 世界位置，分别作为 G1 左/右 wrist 的 Pink IK 目标；不再把 controller 高度叠加到默认 wrist pose 上 |
-| 夹爪 | 左/右 trigger 超过默认阈值 `0.5` 时，分别闭合左/右 Dex1；松开后张开 |
-| 场景 | 固定下半身 G1 Dex1 + table + 3 个 Nucleus block USD（blue/red/green）；当前主要用于 reachability 和 pipeline 联调 |
-| G1 Dex1 资产 | 默认随 IsaacLab 仓库一起读取：`/workspace/isaaclab/docs/g1_dex1_assets/`；当前已裁剪到约 90M：v4 仿真 USD 及验证必要的 composition 依赖、Pink IK URDF、40 个 URDF 实际引用 mesh；详见 `docs/g1_dex1_assets/README.md`；不再依赖额外挂载 `/workspace/host` |
-| XR 高度 | G1 Dex1 使用动态 anchor 到 `/World/envs/env_0/Robot/pelvis`，`anchor_pos.z=-1.0`，让仿真地面接近 Pico 物理地面；若进入后仍觉得机器人过高/过低，优先微调 `g1_dex1_fixed_base_ik_scene_env_cfg.py` 里的 `XrCfg(anchor_pos=(0.0, 0.0, ...))` |
-| 成功判定 | 已加 `success` termination：沿用 Franka block stack 语义，`height_diff=0.0468`，`cube_2` 叠到 `cube_1`、`cube_3` 叠到 `cube_2`，且 Dex1 gripper joints 全部处于 open。若未完成该条件，遥操仍可运行，但不会导出成功 demo |
+| 资产 | 默认读取 `/workspace/isaaclab/docs/g1_dex1_assets/`，包含 v4 仿真 USD、Pink IK URDF、必要 USD composition 依赖和 URDF mesh；详见 `docs/g1_dex1_assets/README.md` |
+| 输出 | 录制数据默认写入 `--dataset_file` 指定的 HDF5；若希望宿主机直接可见，可把路径设到 `/workspace/host/out/...` |
+| XR 高度 | 若进入后机器人过高/过低，优先调 `g1_dex1_fixed_base_ik_scene_env_cfg.py` 中的 `XrCfg(anchor_pos=(0.0, 0.0, ...))` |
+| 成功判定 | 当前 success 是真堆叠：`cube_2` 叠到 `cube_1`、`cube_3` 叠到 `cube_2`，且 gripper joints 处于 open；未满足时可遥操但不会导出成功 demo |
 
-#### 实机录制入口（推荐）
-
-启动前可先确认容器内资产可见：
+启动前确认资产可见：
 
 ```bash
 docker exec isaac-lab-232 test -f /workspace/isaaclab/docs/g1_dex1_assets/g1_29dof_dex1_1_v4_test_good.usd
 docker exec isaac-lab-232 test -f /workspace/isaaclab/docs/g1_dex1_assets/g1_29dof_mode_15_with_dex1_1.urdf
 docker exec isaac-lab-232 test -d /workspace/isaaclab/docs/g1_dex1_assets/meshes
 ```
-
-三条命令无输出且返回码为 0 即正常。若使用其它资产目录，可通过 `G1_DEX1_ASSET_DIR`，或分别通过 `G1_DEX1_USD_PATH`、`G1_DEX1_KINEMATICS_URDF_PATH`、`G1_DEX1_KINEMATICS_MESH_PATH` 覆盖默认路径。
 
 容器内 `/workspace/isaaclab` 执行：
 
@@ -356,45 +347,7 @@ docker exec isaac-lab-232 test -d /workspace/isaaclab/docs/g1_dex1_assets/meshes
   --num_success_steps 10
 ```
 
-`--num_demos 0` 表示持续运行，直到手动停止。`record_demos.py` 与 `teleop_se3_agent.py` 使用同一套 `motion_controllers` 输入、retargeter 和 action pipeline；区别是 `record_demos.py` 会在满足 success 条件后把 episode 导出到 HDF5。
-
-宿主机也可以不进入容器，直接用 `docker exec` 启动录制：
-
-```bash
-docker exec -it -w /workspace/isaaclab isaac-lab-232 ./isaaclab.sh \
-  -p scripts/tools/record_demos.py \
-  --task Isaac-G1-Dex1-FixedBase-StackCube-Reachability-v0 \
-  --teleop_device motion_controllers \
-  --enable_pinocchio \
-  --device cuda:0 \
-  --headless \
-  --info \
-  --dataset_file ./datasets/g1_dex1_pico_motion_controllers.hdf5 \
-  --num_demos 0 \
-  --num_success_steps 10
-```
-
-XR/motion-controller 模式下，`record_demos.py` 默认等待客户端发出 `start` 后才真正应用动作并开始记录。若 Pico 已连接但机器人不动，优先检查 WebXR/CloudXR 客户端是否已发送 start；reset/stop 同理走 OpenXR teleop command。
-
-#### 仅遥操联调（可选）
-
-如果只想调试输入链路、不需要 HDF5，可改用 `teleop_se3_agent.py`：
-
-```bash
-./isaaclab.sh -p scripts/environments/teleoperation/teleop_se3_agent.py \
-  --task Isaac-G1-Dex1-FixedBase-StackCube-Reachability-v0 \
-  --teleop_device motion_controllers \
-  --enable_pinocchio \
-  --device cuda:0 \
-  --headless \
-  --info
-```
-
-如果只想先测无 stack-cube 的干净 G1 Dex1 场景，可把任务换成：
-
-```bash
---task Isaac-G1-Dex1-FixedBase-IK-Scene-v0
-```
+`--num_demos 0` 表示持续运行直到手动停止；`record_demos.py` 会在满足 success 条件后导出有效 demo。
 
 ---
 
@@ -435,20 +388,19 @@ Pico 4 Ultra: 浏览器访问 https://<服务器IP> → 连接 CloudXR → handt
 
 ## 9. 录制数据格式与目录结构
 
-### 9.1 总览：HDF5 + 可选视频
+`record_demos.py` 主要输出 HDF5，默认放在容器内 `./datasets/*.hdf5`。每个 HDF5 通常包含：
 
-| 类型 | 来源 | 典型位置（容器内） | 说明 |
-|------|------|-------------------|------|
-| **HDF5** | `record_demos.py` | `./datasets/*.hdf5` | 主数据：轨迹、状态、观测；任务二含 RGB 帧；任务三与任务一类似以状态/向量观测为主（默认无 Visuomotor 相机键） |
-| **MP4** | `scripts/tools/hdf5_to_mp4.py` | `./videos_for_cosmos/`（目录可自定） | 从 HDF5 的 `obs/<相机键>` 导出，每条 demo、每个相机一个文件 |
+| 路径 | 含义 |
+|------|------|
+| `data/env_args` | 环境配置和录制元信息 |
+| `data/demo_N/actions` | 原始 action |
+| `data/demo_N/processed_actions` | 环境处理后的 action |
+| `data/demo_N/obs/` | 观测字典；具体 key 随任务变化，含相机时通常为 RGB 数组 |
+| `data/demo_N/initial_state/` | episode 初始状态 |
+| `data/demo_N/states/` | episode 逐帧状态 |
+| `data/demo_N/success` | 当前 demo 是否满足 success |
 
-HDF5 内 demo 路径均为 `data/demo_0`、`data/demo_1`、…。
-
-### 9.2 从 HDF5 导出 MP4（任务二多机位示例）
-
-脚本路径：`scripts/tools/hdf5_to_mp4.py`。**任务二**相机键名为 `ego_cam`、`left_wrist_cam`、`right_wrist_cam`，需用 `--input_keys` 指定（默认的 `table_cam` / `wrist_cam` 不适用）。参数名为 **`--framerate`**（不是 `--fps`）。
-
-容器内示例（在 `/workspace/isaaclab`）：
+MP4 是可选衍生格式，只用于目视检查或给下游视频流程使用；原始训练/回放数据以 HDF5 为准。若 HDF5 中有图像观测，可用 `scripts/tools/hdf5_to_mp4.py` 导出视频，例如任务二：
 
 ```bash
 ./isaaclab.sh -p scripts/tools/hdf5_to_mp4.py \
@@ -458,76 +410,4 @@ HDF5 内 demo 路径均为 `data/demo_0`、`data/demo_1`、…。
   --framerate 30
 ```
 
-输出文件命名：`demo_<序号>_<相机键>.mp4`（例如 `demo_0_ego_cam.mp4`）。可选 `--video_height` / `--video_width`（默认会放大到 704×1280；若需保持 256×256 可显式指定）。
-
-**任务一**若 HDF5 中观测键与 Franka/GR1 示例一致，可使用脚本默认的 `--input_keys`，或按实际 `obs/` 下的数据集名称自行传入。
-
-### 9.3 HDF5：`data/demo_N/` 结构（任务一 GR1 PickPlace 示例）
-
-任务一输出例如 `pickplace_gr1t2_handtracking.hdf5`。每个 `demo_N` 大致如下（具体键名以实际文件为准）：
-
-```
-data/
-├── env_args          (环境配置: env_name, dt, decimation, render_interval, num_envs)
-├── total             (总帧数)
-└── demo_N/
-    ├── num_samples   (当前 demo 帧数)
-    ├── success       (是否成功)
-    ├── actions                          (N, 36)   原始动作
-    ├── processed_actions                (N, 36)   处理后的动作
-    ├── obs/
-    │   ├── actions                      (N, 36)   观测中的动作
-    │   ├── hand_joint_state             (N, 22)   手部关节状态
-    │   ├── head_joint_state             (N, 3)    头部关节状态
-    │   ├── left_eef_pos                 (N, 3)    左末端执行器位置
-    │   ├── left_eef_quat                (N, 4)    左末端执行器四元数
-    │   ├── right_eef_pos                (N, 3)    右末端执行器位置
-    │   ├── right_eef_quat               (N, 4)    右末端执行器四元数
-    │   ├── robot_joint_pos              (N, 54)   机器人全部关节位置
-    │   ├── robot_links_state            (N, 55, 13) 55个link状态
-    │   ├── robot_root_pos               (N, 3)    机器人根节点位置
-    │   ├── robot_root_rot               (N, 4)    机器人根节点旋转
-    │   ├── object                       (N, 13)   物体完整状态
-    │   ├── object_pos                   (N, 3)    物体位置
-    │   └── object_rot                   (N, 4)    物体旋转
-    ├── initial_state/
-    │   ├── articulation/robot/
-    │   │   ├── joint_position           (1, 54)
-    │   │   ├── joint_velocity           (1, 54)
-    │   │   ├── root_pose                (1, 7)
-    │   │   └── root_velocity            (1, 6)
-    │   └── rigid_object/object/
-    │       ├── root_pose                (1, 7)
-    │       └── root_velocity            (1, 6)
-    └── states/                          (与 initial_state 结构相同，记录全部 N 帧)
-```
-
-### 9.4 HDF5：`data/demo_N/` 结构（任务二 Galbot Visuomotor 示例）
-
-任务二输出例如 `galbot_left_visuomotor_handtracking.hdf5`。在 **yujie-dev** policy 含相机时，`obs/` 中除向量观测外，还有 RGB（`uint8`，形状 `(N, 256, 256, 3)`）：
-
-```
-data/demo_N/
-├── actions, processed_actions
-├── obs/
-│   ├── ego_cam, left_wrist_cam, right_wrist_cam   (N, 256, 256, 3)  uint8  ← 与 MP4 导出对应
-│   ├── joint_pos, joint_vel, eef_pos, eef_quat, gripper_pos, object, ...
-│   └── ...（cube 位置/姿态等，以实际录制为准）
-├── initial_state/ (articulation/robot, rigid_object/cube_*)
-└── states/          (同上结构，逐帧)
-```
-
-图像已存在于 HDF5 时，**MP4 为可选衍生格式**，便于目视检查或接入只接受视频的下游（如 Cosmos 增广流水线）。
-
-### 关键维度说明（任务一 GR1）
-
-| 维度 | 含义 |
-|------|------|
-| 36 | 动作空间 (左臂 + 右臂 + 双手) |
-| 54 | GR1T2 全部关节数 |
-| 22 | 双手关节自由度 |
-| 3 | 头部关节自由度 (yaw/pitch/roll) |
-| 55 | 机器人 link 数量 |
-| 13 | 单个刚体完整状态 (pos3 + quat4 + lin_vel3 + ang_vel3) |
-| 7 | 位姿 (pos3 + quat4) |
-| 6 | 速度 (lin_vel3 + ang_vel3) |
+具体 `obs/` key 和 tensor shape 以实际 HDF5 文件为准。

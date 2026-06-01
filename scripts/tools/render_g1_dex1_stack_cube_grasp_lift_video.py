@@ -419,9 +419,11 @@ def side_config(robot):
 
 def inactive_pose(env, robot) -> tuple[list[float], list[float]]:
     wrist_name = RIGHT_WRIST_BODY if args_cli.side == "left" else LEFT_WRIST_BODY
+    gripper_bodies = RIGHT_DEX1_BODIES if args_cli.side == "left" else LEFT_DEX1_BODIES
     wrist_ids, _ = robot.find_bodies([wrist_name], preserve_order=True)
-    pos, quat = body_pose_env_frame(env, robot, wrist_ids[0])
-    return to_list(pos), quat
+    body_ids, _ = robot.find_bodies(gripper_bodies, preserve_order=True)
+    _, quat = body_pose_env_frame(env, robot, wrist_ids[0])
+    return to_list(gripper_center_env(env, robot, body_ids)), quat
 
 
 def measure(env, robot, wrist_id: int, joint_ids: list[int], body_ids: list[int], cube_name: str) -> dict:
@@ -517,12 +519,13 @@ def main() -> None:
         cube_camera = env.unwrapped.scene.sensors["cube_close_cam"]
         wrist_id, wrist_names, body_ids, body_names, joint_ids, joint_names, close_target, open_target = side_config(robot)
         default_wrist, active_quat = body_pose_env_frame(env, robot, wrist_id)
+        default_center = gripper_center_env(env, robot, body_ids)
         inactive_default_position, inactive_controller_quat = inactive_pose(env, robot)
         wrist_retargeter, left_gripper, right_gripper, configured_retargeters = make_retargeters_from_env_cfg(env_cfg)
 
         set_global_camera_pose(env, robot, global_camera)
         for _ in range(args_cli.warmup_steps):
-            raw = make_controller_data(to_list(default_wrist), active_quat, 0.0, inactive_default_position, inactive_controller_quat)
+            raw = make_controller_data(to_list(default_center), active_quat, 0.0, inactive_default_position, inactive_controller_quat)
             env.step(retarget_action(wrist_retargeter, left_gripper, right_gripper, raw))
 
         default_wrist, active_quat = body_pose_env_frame(env, robot, wrist_id)
@@ -549,7 +552,12 @@ def main() -> None:
         frame_records = []
         for frame in range(args_cli.frames):
             active_position, active_trigger, phase, progress = interpolate_keyframes(frame, args_cli.frames, keyframes)
-            raw = make_controller_data(active_position, active_quat, active_trigger, inactive_default_position, inactive_controller_quat)
+            active_controller_position = [
+                float(active_position[i] + center_to_wrist[i].item()) for i in range(3)
+            ]
+            raw = make_controller_data(
+                active_controller_position, active_quat, active_trigger, inactive_default_position, inactive_controller_quat
+            )
             action = retarget_action(wrist_retargeter, left_gripper, right_gripper, raw)
             set_gripper_camera_pose(env, robot, body_ids, gripper_camera)
             set_cube_camera_pose(env, robot, body_ids, args_cli.cube, cube_camera)
@@ -570,8 +578,11 @@ def main() -> None:
                     "frame": frame,
                     "progress": float(progress),
                     "phase": phase,
-                    "mock_active_controller_position": [float(v) for v in active_position],
-                    "mock_active_controller_offset": [float(active_position[i] - default_wrist[i].item()) for i in range(3)],
+                    "mock_active_wrist_target_position": [float(v) for v in active_position],
+                    "mock_active_controller_position": active_controller_position,
+                    "mock_active_controller_offset": [
+                        float(active_controller_position[i] - default_center[i].item()) for i in range(3)
+                    ],
                     "mock_active_trigger": float(active_trigger),
                     "assist_cube_attached": bool(cube_assist_attached),
                     **assist_info,

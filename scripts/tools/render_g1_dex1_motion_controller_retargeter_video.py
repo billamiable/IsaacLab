@@ -254,6 +254,16 @@ def retarget_action(wrist_retargeter, left_gripper, right_gripper, raw_data: dic
     ).unsqueeze(0)
 
 
+def controller_position_for_wrist_target(wrist_retargeter, side: str, wrist_position) -> list[float]:
+    """Return mock controller xyz for a desired wrist target."""
+    position = [float(wrist_position[i]) for i in range(3)]
+    cfg = getattr(wrist_retargeter, "_cfg", None)
+    if cfg is None or not getattr(cfg, "use_gripper_center_position", False):
+        return position
+    offset = getattr(cfg, f"{side}_wrist_to_gripper_center_offset")
+    return [position[i] + float(offset[i]) for i in range(3)]
+
+
 def compute_scene_bounds(env, robot) -> tuple[torch.Tensor, float]:
     positions = [robot.data.body_pos_w[0]]
     for rigid_object in env.unwrapped.scene.rigid_objects.values():
@@ -381,9 +391,14 @@ def main() -> None:
         left_offset_peak = torch.tensor([args_cli.left_offset_x, args_cli.left_offset_y, args_cli.left_offset_z], dtype=torch.float32)
         right_offset_peak = torch.tensor([args_cli.right_offset_x, args_cli.right_offset_y, args_cli.right_offset_z], dtype=torch.float32)
 
+        left_default_controller_pos = controller_position_for_wrist_target(wrist_retargeter, "left", left_default_pos)
+        right_default_controller_pos = controller_position_for_wrist_target(wrist_retargeter, "right", right_default_pos)
+
         set_global_camera_pose(env, robot, global_camera)
         for _ in range(args_cli.warmup_steps):
-            raw = make_controller_data(left_default_pos, left_quat, 0.0, right_default_pos, right_quat, 0.0)
+            raw = make_controller_data(
+                left_default_controller_pos, left_quat, 0.0, right_default_controller_pos, right_quat, 0.0
+            )
             env.step(retarget_action(wrist_retargeter, left_gripper, right_gripper, raw))
         initial = measure(robot, left_wrist_ids[0], right_wrist_ids[0], left_joint_ids, right_joint_ids, left_body_ids, right_body_ids)
 
@@ -400,7 +415,11 @@ def main() -> None:
             )
             left_target_pos = [left_default_pos[i] + float(left_offset[i]) for i in range(3)]
             right_target_pos = [right_default_pos[i] + float(right_offset[i]) for i in range(3)]
-            raw = make_controller_data(left_target_pos, left_quat, left_trigger, right_target_pos, right_quat, right_trigger)
+            left_controller_pos = controller_position_for_wrist_target(wrist_retargeter, "left", left_target_pos)
+            right_controller_pos = controller_position_for_wrist_target(wrist_retargeter, "right", right_target_pos)
+            raw = make_controller_data(
+                left_controller_pos, left_quat, left_trigger, right_controller_pos, right_quat, right_trigger
+            )
             action = retarget_action(wrist_retargeter, left_gripper, right_gripper, raw)
             set_close_camera_pose(robot, left_body_ids, left_camera, "left")
             set_close_camera_pose(robot, right_body_ids, right_camera, "right")
@@ -421,8 +440,10 @@ def main() -> None:
                     "mock_right_trigger": float(right_trigger),
                     "mock_left_controller_offset": [float(v) for v in left_offset],
                     "mock_right_controller_offset": [float(v) for v in right_offset],
-                    "mock_left_controller_position": [float(v) for v in left_target_pos],
-                    "mock_right_controller_position": [float(v) for v in right_target_pos],
+                    "mock_left_wrist_target_position": [float(v) for v in left_target_pos],
+                    "mock_right_wrist_target_position": [float(v) for v in right_target_pos],
+                    "mock_left_controller_position": [float(v) for v in left_controller_pos],
+                    "mock_right_controller_position": [float(v) for v in right_controller_pos],
                     "retargeted_action_shape": list(action.shape),
                     **measured,
                 }

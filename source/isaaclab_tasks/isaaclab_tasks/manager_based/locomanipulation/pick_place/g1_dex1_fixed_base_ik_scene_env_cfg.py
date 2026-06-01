@@ -225,7 +225,18 @@ class G1Dex1FixedBaseIKSceneEnvCfg(ManagerBasedRLEnvCfg):
                             bound_left_controller=DeviceBase.TrackingTarget.CONTROLLER_LEFT,
                             bound_right_controller=DeviceBase.TrackingTarget.CONTROLLER_RIGHT,
                             use_left_controller=True,
+                            use_gripper_center_position=True,
                             use_controller_orientation=False,
+                            left_wrist_to_gripper_center_offset=(
+                                0.1505068987607956,
+                                -0.00012060999870300293,
+                                -8.225440979003906e-06,
+                            ),
+                            right_wrist_to_gripper_center_offset=(
+                                0.15050695836544037,
+                                -6.29723072052002e-05,
+                                -8.344650268554688e-06,
+                            ),
                             left_wrist_default_pose=(
                                 0.20477421581745148,
                                 0.1486508846282959,

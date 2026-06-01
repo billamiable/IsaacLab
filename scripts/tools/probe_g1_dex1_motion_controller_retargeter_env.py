@@ -147,6 +147,21 @@ def retarget_action(wrist_retargeter, left_gripper, right_gripper, raw_data: dic
     return action.unsqueeze(0)
 
 
+def controller_position_for_wrist_target(wrist_retargeter, side: str, wrist_position) -> list[float]:
+    """Return mock controller position for a desired wrist target.
+
+    The real G1 Dex1 teleop retargeter treats controller xyz as the Dex1 front-claw
+    center, not the wrist link. Mock tests therefore add the configured wrist->gripper
+    offset before feeding controller data.
+    """
+    position = [float(wrist_position[i]) for i in range(3)]
+    cfg = getattr(wrist_retargeter, "_cfg", None)
+    if cfg is None or not getattr(cfg, "use_gripper_center_position", False):
+        return position
+    offset = getattr(cfg, f"{side}_wrist_to_gripper_center_offset")
+    return [position[i] + float(offset[i]) for i in range(3)]
+
+
 def step_command(env, action: torch.Tensor, steps: int) -> None:
     for _ in range(steps):
         env.step(action)
@@ -227,27 +242,42 @@ def main() -> None:
         left_target_pos = [left_default_pos[i] + left_offset[i] for i in range(3)]
         right_target_pos = [right_default_pos[i] + right_offset[i] for i in range(3)]
 
-        open_raw = make_controller_data(left_default_pos, left_quat, 0.0, right_default_pos, right_quat, 0.0)
+        left_default_controller_pos = controller_position_for_wrist_target(wrist_retargeter, "left", left_default_pos)
+        right_default_controller_pos = controller_position_for_wrist_target(wrist_retargeter, "right", right_default_pos)
+        left_target_controller_pos = controller_position_for_wrist_target(wrist_retargeter, "left", left_target_pos)
+        right_target_controller_pos = controller_position_for_wrist_target(wrist_retargeter, "right", right_target_pos)
+
+        open_raw = make_controller_data(
+            left_default_controller_pos, left_quat, 0.0, right_default_controller_pos, right_quat, 0.0
+        )
         open_action = retarget_action(wrist_retargeter, left_gripper, right_gripper, open_raw)
         step_command(env, open_action, args_cli.steps_per_command)
         initial = measure(robot, left_wrist_ids[0], right_wrist_ids[0], left_joint_ids, right_joint_ids, left_body_ids, right_body_ids)
 
-        left_close_raw = make_controller_data(left_target_pos, left_quat, 1.0, right_default_pos, right_quat, 0.0)
+        left_close_raw = make_controller_data(
+            left_target_controller_pos, left_quat, 1.0, right_default_controller_pos, right_quat, 0.0
+        )
         left_close_action = retarget_action(wrist_retargeter, left_gripper, right_gripper, left_close_raw)
         step_command(env, left_close_action, args_cli.steps_per_command)
         left_closed = measure(robot, left_wrist_ids[0], right_wrist_ids[0], left_joint_ids, right_joint_ids, left_body_ids, right_body_ids)
 
-        right_close_raw = make_controller_data(left_default_pos, left_quat, 0.0, right_target_pos, right_quat, 1.0)
+        right_close_raw = make_controller_data(
+            left_default_controller_pos, left_quat, 0.0, right_target_controller_pos, right_quat, 1.0
+        )
         right_close_action = retarget_action(wrist_retargeter, left_gripper, right_gripper, right_close_raw)
         step_command(env, right_close_action, args_cli.steps_per_command)
         right_closed = measure(robot, left_wrist_ids[0], right_wrist_ids[0], left_joint_ids, right_joint_ids, left_body_ids, right_body_ids)
 
-        both_close_raw = make_controller_data(left_target_pos, left_quat, 1.0, right_target_pos, right_quat, 1.0)
+        both_close_raw = make_controller_data(
+            left_target_controller_pos, left_quat, 1.0, right_target_controller_pos, right_quat, 1.0
+        )
         both_close_action = retarget_action(wrist_retargeter, left_gripper, right_gripper, both_close_raw)
         step_command(env, both_close_action, args_cli.steps_per_command)
         both_closed = measure(robot, left_wrist_ids[0], right_wrist_ids[0], left_joint_ids, right_joint_ids, left_body_ids, right_body_ids)
 
-        reopen_raw = make_controller_data(left_default_pos, left_quat, 0.0, right_default_pos, right_quat, 0.0)
+        reopen_raw = make_controller_data(
+            left_default_controller_pos, left_quat, 0.0, right_default_controller_pos, right_quat, 0.0
+        )
         reopen_action = retarget_action(wrist_retargeter, left_gripper, right_gripper, reopen_raw)
         step_command(env, reopen_action, args_cli.steps_per_command)
         reopened = measure(robot, left_wrist_ids[0], right_wrist_ids[0], left_joint_ids, right_joint_ids, left_body_ids, right_body_ids)
@@ -300,10 +330,14 @@ def main() -> None:
             "right_gripper_body_names": right_body_names,
             "mock_left_controller_offset": left_offset,
             "mock_right_controller_offset": right_offset,
-            "mock_left_controller_default_position": left_default_pos,
-            "mock_right_controller_default_position": right_default_pos,
-            "mock_left_controller_target_position": left_target_pos,
-            "mock_right_controller_target_position": right_target_pos,
+            "mock_left_wrist_default_position": left_default_pos,
+            "mock_right_wrist_default_position": right_default_pos,
+            "mock_left_wrist_target_position": left_target_pos,
+            "mock_right_wrist_target_position": right_target_pos,
+            "mock_left_controller_default_position": left_default_controller_pos,
+            "mock_right_controller_default_position": right_default_controller_pos,
+            "mock_left_controller_target_position": left_target_controller_pos,
+            "mock_right_controller_target_position": right_target_controller_pos,
             "initial": initial,
             "left_closed": left_closed,
             "right_closed": right_closed,

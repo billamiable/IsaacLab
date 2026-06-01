@@ -39,6 +39,12 @@ class G1Dex1UpperBodyMotionControllerRetargeter(RetargeterBase):
         self._right_default_pose = np.asarray(cfg.right_wrist_default_pose, dtype=np.float32)
         self._left_controller_origin_pose = np.asarray(cfg.left_controller_origin_pose, dtype=np.float32)
         self._right_controller_origin_pose = np.asarray(cfg.right_controller_origin_pose, dtype=np.float32)
+        self._left_wrist_to_gripper_center_offset = np.asarray(
+            cfg.left_wrist_to_gripper_center_offset, dtype=np.float32
+        )
+        self._right_wrist_to_gripper_center_offset = np.asarray(
+            cfg.right_wrist_to_gripper_center_offset, dtype=np.float32
+        )
 
         for name, pose in (
             ("left_wrist_default_pose", self._left_default_pose),
@@ -48,6 +54,12 @@ class G1Dex1UpperBodyMotionControllerRetargeter(RetargeterBase):
         ):
             if pose.shape != (7,):
                 raise ValueError(f"{name} must be a 7D pose [x, y, z, qw, qx, qy, qz], got {pose.shape}")
+        for name, offset in (
+            ("left_wrist_to_gripper_center_offset", self._left_wrist_to_gripper_center_offset),
+            ("right_wrist_to_gripper_center_offset", self._right_wrist_to_gripper_center_offset),
+        ):
+            if offset.shape != (3,):
+                raise ValueError(f"{name} must be a 3D vector [x, y, z], got {offset.shape}")
 
     def retarget(self, data: dict) -> torch.Tensor:
         """Return 14D Pink IK wrist target action from controller raw data."""
@@ -55,12 +67,14 @@ class G1Dex1UpperBodyMotionControllerRetargeter(RetargeterBase):
             data.get(self._cfg.bound_left_controller),
             self._left_default_pose,
             self._left_controller_origin_pose,
+            self._left_wrist_to_gripper_center_offset,
             enabled=self._cfg.use_left_controller,
         )
         right_pose = self._retarget_controller(
             data.get(self._cfg.bound_right_controller),
             self._right_default_pose,
             self._right_controller_origin_pose,
+            self._right_wrist_to_gripper_center_offset,
             enabled=True,
         )
         command = np.concatenate([left_pose, right_pose]).astype(np.float32)
@@ -74,6 +88,7 @@ class G1Dex1UpperBodyMotionControllerRetargeter(RetargeterBase):
         controller_data: np.ndarray | None,
         default_pose: np.ndarray,
         origin_pose: np.ndarray,
+        wrist_to_gripper_center_offset: np.ndarray,
         *,
         enabled: bool,
     ) -> np.ndarray:
@@ -85,6 +100,8 @@ class G1Dex1UpperBodyMotionControllerRetargeter(RetargeterBase):
         output = default_pose.copy()
         if self._cfg.use_absolute_controller_position:
             output[:3] = pose[:3]
+            if self._cfg.use_gripper_center_position:
+                output[:3] -= wrist_to_gripper_center_offset
         else:
             output[:3] = default_pose[:3] + (pose[:3] - origin_pose[:3]) * float(self._cfg.position_scale)
         if self._cfg.use_controller_orientation:
@@ -107,6 +124,7 @@ class G1Dex1UpperBodyMotionControllerRetargeterCfg(RetargeterCfg):
     bound_right_controller: DeviceBase.TrackingTarget = DeviceBase.TrackingTarget.CONTROLLER_RIGHT
     use_left_controller: bool = False
     use_absolute_controller_position: bool = True
+    use_gripper_center_position: bool = False
     use_controller_orientation: bool = False
     position_scale: float = 1.0
     left_wrist_default_pose: tuple[float, float, float, float, float, float, float] = (
@@ -145,4 +163,6 @@ class G1Dex1UpperBodyMotionControllerRetargeterCfg(RetargeterCfg):
         0.0,
         0.0,
     )
+    left_wrist_to_gripper_center_offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    right_wrist_to_gripper_center_offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
     retargeter_type: type[RetargeterBase] = G1Dex1UpperBodyMotionControllerRetargeter

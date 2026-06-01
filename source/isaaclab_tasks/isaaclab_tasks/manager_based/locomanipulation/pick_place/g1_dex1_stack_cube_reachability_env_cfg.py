@@ -54,7 +54,7 @@ def _env_float(name: str, default: float) -> float:
 TABLE_CENTER = (
     _env_float("G1_DEX1_TABLE_CENTER_X", 0.58),
     _env_float("G1_DEX1_TABLE_CENTER_Y", 0.0),
-    _env_float("G1_DEX1_TABLE_CENTER_Z", 0.78),
+    _env_float("G1_DEX1_TABLE_CENTER_Z", 0.90),
 )
 TABLE_SIZE = (
     _env_float("G1_DEX1_TABLE_SIZE_X", 0.60),

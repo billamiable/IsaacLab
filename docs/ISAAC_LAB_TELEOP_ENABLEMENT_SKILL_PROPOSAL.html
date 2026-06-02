@@ -1,0 +1,573 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Isaac Lab Teleop Enablement Skill 设计提案</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f5f7fa;
+      --paper: #ffffff;
+      --text: #20242b;
+      --muted: #5f6b7a;
+      --line: #d9dee7;
+      --accent: #1565c0;
+      --accent-soft: #e8f1ff;
+      --ok: #126b43;
+      --warn: #9a5a00;
+      --code-bg: #edf2f7;
+      --pre-bg: #182331;
+      --pre-text: #edf4ff;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.62;
+    }
+
+    main {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 38px 24px 72px;
+    }
+
+    header {
+      padding-bottom: 24px;
+      border-bottom: 1px solid var(--line);
+      margin-bottom: 28px;
+    }
+
+    h1 {
+      margin: 8px 0 12px;
+      font-size: 32px;
+      line-height: 1.24;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin: 34px 0 14px;
+      font-size: 23px;
+      line-height: 1.35;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin: 24px 0 10px;
+      font-size: 18px;
+      line-height: 1.35;
+      letter-spacing: 0;
+    }
+
+    p {
+      margin: 9px 0;
+    }
+
+    code {
+      background: var(--code-bg);
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: 0.94em;
+    }
+
+    pre {
+      margin: 12px 0 18px;
+      padding: 14px 16px;
+      overflow-x: auto;
+      border-radius: 8px;
+      background: var(--pre-bg);
+      color: var(--pre-text);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    pre code {
+      background: transparent;
+      padding: 0;
+      color: inherit;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0 18px;
+      background: var(--paper);
+    }
+
+    th,
+    td {
+      border: 1px solid var(--line);
+      padding: 9px 11px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: #edf1f7;
+      font-weight: 700;
+    }
+
+    ul,
+    ol {
+      padding-left: 22px;
+    }
+
+    li {
+      margin: 5px 0;
+    }
+
+    .lead {
+      max-width: 960px;
+      color: var(--muted);
+      font-size: 17px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 9px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+      margin: 14px 0 20px;
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+      margin: 14px 0 20px;
+    }
+
+    .card {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px 16px;
+    }
+
+    .card h3 {
+      margin-top: 0;
+    }
+
+    .note {
+      padding: 12px 14px;
+      border-left: 4px solid var(--accent);
+      background: var(--accent-soft);
+      border-radius: 4px;
+      margin: 14px 0;
+    }
+
+    .ok {
+      color: var(--ok);
+      font-weight: 700;
+    }
+
+    .warn {
+      color: var(--warn);
+      font-weight: 700;
+    }
+
+    .small {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .phase {
+      display: grid;
+      grid-template-columns: 120px minmax(0, 1fr);
+      gap: 14px;
+      align-items: start;
+      padding: 14px 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .phase:last-child {
+      border-bottom: 0;
+    }
+
+    .phase-label {
+      color: var(--accent);
+      font-weight: 800;
+    }
+
+    @media (max-width: 860px) {
+      main {
+        padding: 26px 16px 56px;
+      }
+
+      h1 {
+        font-size: 26px;
+      }
+
+      .grid,
+      .two-col,
+      .phase {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <span class="badge">Skill Proposal</span>
+      <h1>Isaac Lab 机器人 Teleop Enablement Workflow 是否适合做成 Skill</h1>
+      <p class="lead">
+        结论：适合。它不应该被设计成“给一个机器人资产就全自动生成 teleop 环境”的黑盒，而应该设计成一个半结构化工程 workflow skill。
+        Skill 负责固定适配顺序、检查点、验证证据和常见坑；具体机器人、控制方式、任务环境仍由 agent 根据代码库做工程判断。
+      </p>
+      <p class="small">整理日期：2026-06-02。示例来自本轮 G1 Dex1 + Pico motion controller + Isaac Lab headless enable 过程。</p>
+    </header>
+
+    <section>
+      <h2>1. 为什么这件事可以做成 Skill</h2>
+      <p>
+        这个工作流的输入和输出不像 PDF 转换或代码生成那样完全模块化，但它有稳定的阶段、稳定的判断问题和稳定的验收方式。
+        这正是 skill 适合承载的内容：不是替代工程判断，而是让 agent 每次做类似适配时按同一条证据链推进。
+      </p>
+      <div class="grid">
+        <div class="card">
+          <h3>稳定输入</h3>
+          <p>机器人资产、仿真描述、运动学描述、控制源、参考任务、期望的 teleop 语义。</p>
+        </div>
+        <div class="card">
+          <h3>稳定流程</h3>
+          <p>资产确认、frame/joint 映射、action 设计、retargeter 接入、smoke test、视频验证、环境调整。</p>
+        </div>
+        <div class="card">
+          <h3>稳定输出</h3>
+          <p>任务 cfg、retargeter、probe 脚本、报告、视频、启动命令、适配复盘文档。</p>
+        </div>
+      </div>
+      <div class="note">
+        Skill 的核心价值不是“写出某个固定文件”，而是持续追问五个问题：
+        控制源是什么？控制目标 frame 是什么？retargeter 做了什么坐标变换？Isaac Lab action space 最终收到什么？如何证明它真的按这个语义工作？
+      </div>
+    </section>
+
+    <section>
+      <h2>2. 建议的 Skill 边界</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>范围</th>
+            <th>应该包含</th>
+            <th>不应该承诺</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>机器人资产适配</td>
+            <td>指导 agent 区分 USD、URDF、meshes、kinematics URDF，并确认 joint/body/frame 名称。</td>
+            <td>不承诺自动修复所有 USD composition、URDF importer 或物理参数问题。</td>
+          </tr>
+          <tr>
+            <td>Teleop 接入</td>
+            <td>指导 agent 设计 controller raw data 到 Isaac Lab action 的 retarget path。</td>
+            <td>不假设所有机器人都用同一个 IK、同一个 end-effector frame 或同一个 gripper 表达。</td>
+          </tr>
+          <tr>
+            <td>Headless 验证</td>
+            <td>要求 smoke test、JSON/Markdown report、截图或视频，并把输出落到宿主机。</td>
+            <td>不把 headless 验证等同于真实 Pico 实机验证。</td>
+          </tr>
+          <tr>
+            <td>任务环境调整</td>
+            <td>指导 agent 调整 table、cube、camera、fixed base、success termination。</td>
+            <td>不承诺一次完成真实抓取或真实堆叠策略。</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>3. Skill 的输入和输出</h2>
+      <div class="two-col">
+        <div class="card">
+          <h3>输入</h3>
+          <ul>
+            <li>仿真资产：USD 路径、依赖目录、mesh 目录。</li>
+            <li>运动学资产：URDF 或 kinematics URDF 路径。</li>
+            <li>控制源：Pico/OpenXR motion controller、hand tracking、keyboard 或 mock data。</li>
+            <li>控制语义：wrist、palm、tool frame、gripper center、finger pads。</li>
+            <li>参考任务：已有 humanoid 示例、Franka stack 示例、GR1T2/Galbot 任务。</li>
+            <li>运行方式：docker/headless、是否需要 cameras、是否需要 Pinocchio/Pink IK。</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>输出</h3>
+          <ul>
+            <li>新增或修改后的 task cfg / scene cfg / action cfg。</li>
+            <li>新增或修改后的 teleop retargeter。</li>
+            <li>资产关系和 name mapping 文档。</li>
+            <li>headless smoke test 脚本或现有 probe 的更新。</li>
+            <li>JSON/Markdown 报告、截图或 MP4 视频。</li>
+            <li>实机 teleop / record_demos 启动命令。</li>
+            <li>阶段性 commit。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>4. 推荐阶段拆分</h2>
+      <div class="card">
+        <div class="phase">
+          <div class="phase-label">Phase A</div>
+          <div>
+            <strong>资产和拓扑确认。</strong>
+            目标是确认 USD 能加载、URDF/meshes 能支持 IK、articulation joint/body/frame 名称清楚。
+            输出可以是 asset README、joint 列表、headless load screenshot。
+          </div>
+        </div>
+        <div class="phase">
+          <div class="phase-label">Phase B</div>
+          <div>
+            <strong>Isaac Lab 基础接入。</strong>
+            写或修改 <code>ArticulationCfg</code>、scene cfg、task registration，先让环境 reset/step 稳定。
+          </div>
+        </div>
+        <div class="phase">
+          <div class="phase-label">Phase C</div>
+          <div>
+            <strong>控制抽象和 retargeter。</strong>
+            明确 action space，例如 <code>upper_body_ik(14) + left_gripper(1) + right_gripper(1)</code>。
+            明确 raw controller pose 到 action 的语义和坐标变换。
+          </div>
+        </div>
+        <div class="phase">
+          <div class="phase-label">Phase D</div>
+          <div>
+            <strong>Headless smoke test。</strong>
+            用 mock controller raw data 验证 action shape、joint tracking、IK target、gripper open/close。
+            输出 JSON/Markdown report。
+          </div>
+        </div>
+        <div class="phase">
+          <div class="phase-label">Phase E</div>
+          <div>
+            <strong>视频验证。</strong>
+            用 headless camera 录视频，检查视觉上是不是目标部位在动。
+            这一步专门捕捉“代码数值看似对，但实际画面不对”的问题。
+          </div>
+        </div>
+        <div class="phase">
+          <div class="phase-label">Phase F</div>
+          <div>
+            <strong>任务和环境调整。</strong>
+            调 table/cube/camera/fixed base/success termination，让 teleop 场景接近实机可操作状态。
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>5. G1 Dex1 适配中的可复用例子</h2>
+
+      <h3>例子 1：USD 和 URDF 不是互相替代关系</h3>
+      <p>
+        本轮 G1 Dex1 资产不是简单把 URDF 直接转成 USD。实际做法是：以原 G1 USD 为基础，移除 Inspire hand；
+        再从完整 G1 + Dex1 URDF 转 USD 的结果中取出 Dex1 gripper 相关层，拼接到 no-hand G1 上。
+      </p>
+      <table>
+        <thead>
+          <tr>
+            <th>文件类型</th>
+            <th>在 pipeline 里的作用</th>
+            <th>经验</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>USD</td>
+            <td>Isaac Sim/Isaac Lab 里真实 spawn 的仿真资产。</td>
+            <td>可以通过 Gain Tuner 或 headless load 验证 articulation 是否合理。</td>
+          </tr>
+          <tr>
+            <td>URDF</td>
+            <td>Pink/Pinocchio 运动学求解仍可能依赖它。</td>
+            <td>不要以为有 USD 后 URDF 就完全没用了；IK 仍要 frame/joint 拓扑。</td>
+          </tr>
+          <tr>
+            <td>meshes</td>
+            <td>URDF 和 USD 可能都间接依赖 mesh 文件。</td>
+            <td>prune 资产时要先验证依赖，不能只看目录名判断是否 unused。</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>例子 2：4 个 prismatic joints 可以抽象成左右各 1D gripper</h3>
+      <p>
+        G1 Dex1 整体是 33 joints：G1 29DoF body 加 4 个 Dex1 prismatic joints。
+        虽然物理上每只手有两个 prismatic joints，但 teleop action 可以抽象成左右各 1 维 open/close。
+      </p>
+      <pre><code>upper_body_ik:        14D = left wrist pose(7) + right wrist pose(7)
+left_gripper_action:  1D = left Dex1 open/close
+right_gripper_action: 1D = right Dex1 open/close
+total action space:  16D</code></pre>
+      <p>
+        这个例子说明 skill 需要引导 agent 先确认“物理 DoF”和“控制抽象 DoF”的差异，再写 action term。
+      </p>
+
+      <h3>例子 3：Motion controller 位置不一定应该对应 wrist</h3>
+      <p>
+        一开始 mock Pico 和真实 Pico 的 controller xyz 被当成 <code>wrist_yaw_link</code> 目标。
+        实测发现这会导致用户手柄对齐的是腕部，而不是 Dex1 前面的并联爪。
+        后来修正为：controller xyz 表示 Dex1 gripper front-claw center，再由 retargeter 减掉 wrist 到爪心的偏移，得到 Pink IK 的 wrist target。
+      </p>
+      <pre><code>controller_xyz = desired_gripper_center_xyz
+wrist_target_xyz = controller_xyz - wrist_to_gripper_center_offset
+
+right_wrist_to_gripper_center_offset ≈ [0.1505, -0.00006, -0.000008] m
+left_wrist_to_gripper_center_offset  ≈ [0.1505, -0.00012, -0.000008] m</code></pre>
+      <p>
+        这个问题非常适合写进 skill：每次做 teleop 都必须明确 controller pose 对应哪个物理 frame。
+        如果不明确，代码可能能跑，视频也有动作，但真实操作会感觉“不跟手”。
+      </p>
+
+      <h3>例子 4：Headless smoke test 是为了提前抓低级错误</h3>
+      <p>
+        本轮用 mock Pico raw data 在 docker/headless 模式下验证了 retargeter 和 env action pipeline。
+        例如修正 gripper-center 映射后，smoke report 里能看到 controller 默认 x 约 <code>0.355m</code>，
+        action 里的 wrist x 约 <code>0.204m</code>，正好减掉 Dex1 前爪约 <code>15cm</code> 的偏移。
+      </p>
+      <table>
+        <thead>
+          <tr>
+            <th>验证项</th>
+            <th>证明什么</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>action shape = 16</td>
+            <td>IK action 和左右 gripper action 拼接正确。</td>
+          </tr>
+          <tr>
+            <td>trigger 使 gripper 从 open 到 close</td>
+            <td>Pico trigger 到 Dex1 prismatic joints 的路径正常。</td>
+          </tr>
+          <tr>
+            <td>controller position 与 wrist action 存在 15cm offset</td>
+            <td>真实输入语义已经从 wrist 改成 gripper center。</td>
+          </tr>
+          <tr>
+            <td>MP4 视频</td>
+            <td>视觉上确认移动的是前爪，而不是腕部粘住 cube。</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>例子 5：任务环境调整也应该纳入 skill</h3>
+      <p>
+        G1 是人形机器人，不能照搬 Franka 任务里“桌子插在机械臂下方”的布局。
+        本轮先修正 table 与机器人碰撞的问题，再把任务四桌面默认高度从 <code>TABLE_CENTER_Z=0.78</code> 抬到 <code>0.90</code>。
+        结果是桌面顶面约 <code>0.93m</code>，cube 中心约 <code>0.953m</code>，更接近 G1 小臂横向工作高度。
+      </p>
+      <p>
+        这说明 skill 不能只关心 robot cfg 和 retargeter，也要包含 task scene calibration：
+        robot fixed base、table pose、cube pose、camera view、success termination 都会影响 teleop 可用性。
+      </p>
+    </section>
+
+    <section>
+      <h2>6. 推荐 Skill 目录结构</h2>
+      <p>
+        第一版可以保持轻量，先把流程固化下来，不急着把所有 probe/render 脚本都变成通用工具。
+      </p>
+      <pre><code>isaac-lab-teleop-enabler/
+├── SKILL.md
+├── references/
+│   ├── workflow.md
+│   ├── asset_mapping.md
+│   ├── pink_ik.md
+│   ├── openxr_retargeting.md
+│   ├── validation.md
+│   └── g1_dex1_case.md
+└── scripts/
+    ├── inspect_asset_paths.py
+    ├── summarize_articulation.py
+    └── smoke_report_template.py</code></pre>
+      <table>
+        <thead>
+          <tr>
+            <th>文件</th>
+            <th>建议内容</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>SKILL.md</code></td>
+            <td>触发条件、总流程、必须确认的问题、验收标准。保持短。</td>
+          </tr>
+          <tr>
+            <td><code>workflow.md</code></td>
+            <td>Phase A-F 的详细步骤和常见分支。</td>
+          </tr>
+          <tr>
+            <td><code>asset_mapping.md</code></td>
+            <td>USD/URDF/mesh/kinematics URDF 的职责边界和 prune/flatten 风险。</td>
+          </tr>
+          <tr>
+            <td><code>openxr_retargeting.md</code></td>
+            <td>controller raw data、trigger、hand tracking、frame semantics、offset 处理。</td>
+          </tr>
+          <tr>
+            <td><code>validation.md</code></td>
+            <td>headless smoke、report、video、实机测试之间的关系。</td>
+          </tr>
+          <tr>
+            <td><code>g1_dex1_case.md</code></td>
+            <td>本轮 G1 Dex1 作为 worked example，但不把它写死为唯一实现。</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>7. Skill 触发描述草案</h2>
+      <pre><code>Use this skill when adapting a robot asset in Isaac Lab or Isaac Sim for teleoperation,
+especially when wiring USD/URDF assets, Pink IK, OpenXR/Pico motion controllers,
+gripper retargeting, manager-based task scenes, headless smoke tests, or validation videos.</code></pre>
+      <p>
+        这个描述可以覆盖“已有机器人资产，想让它能被 Pico/teleop 控制”的场景，也能覆盖后续任务环境校准。
+      </p>
+    </section>
+
+    <section>
+      <h2>8. 给 Agent 的固定工作习惯</h2>
+      <ol>
+        <li>先问清或查清资产来源：最终 spawn 的 USD 是哪个，IK 用的 URDF 是哪个。</li>
+        <li>先列 joint/body/frame 名称，再写 action 和 retargeter。</li>
+        <li>每个控制输入都要声明语义：controller pose 对应 wrist、tool、palm 还是 gripper center。</li>
+        <li>先做最小切片：gripper only，再 scene，再 IK，再 teleop raw data。</li>
+        <li>每次改变 input mapping，都要跑 mock raw data smoke test。</li>
+        <li>每次改变视觉/任务环境，都要录视频或截图检查视角、桌面、cube、机器人姿态。</li>
+        <li>实机测试前输出明确启动命令；实机测试后把 observed issue 回写到流程。</li>
+      </ol>
+      <div class="note">
+        <strong>推荐结论：</strong>
+        这应该被做成一个“半结构化工程 skill”。它的输入输出可以模块化到足够实用，但不能强行抽象成全自动转换器。
+        第一版最有价值的是固定 enable 顺序和验证标准，让以后适配新机器人时少走重复弯路。
+      </div>
+    </section>
+  </main>
+</body>
+</html>

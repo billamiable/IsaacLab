@@ -33,12 +33,46 @@ parser.add_argument("--close-width", type=int, default=480, help="Kept for CLI c
 parser.add_argument("--close-height", type=int, default=540, help="Kept for CLI compatibility with the original script.")
 parser.add_argument("--with-warehouse", action=argparse.BooleanOptionalAction, default=True, help="Load the Isaac Sim Simple_Warehouse environment while preserving the known-good task layout.")
 parser.add_argument(
+    "--use-overlay-robot-cameras",
+    action=argparse.BooleanOptionalAction,
+    default=False,
+    help="Bind ego/left/right cameras that already exist in the robot USD overlay instead of spawning them at runtime.",
+)
+parser.add_argument(
     "--dump-wrist-frames",
     action=argparse.BooleanOptionalAction,
     default=False,
     help="Save every sampled left/right wrist camera frame from policy observations and raw sensor outputs.",
 )
 parser.add_argument("--dump-wrist-every", type=int, default=1, help="Save wrist debug frames every N rendered frames.")
+parser.add_argument(
+    "--left-wrist-camera-pos",
+    type=float,
+    nargs=3,
+    default=None,
+    metavar=("X", "Y", "Z"),
+    help="Override left wrist camera fixed offset position relative to left_wrist_yaw_link.",
+)
+parser.add_argument(
+    "--left-wrist-camera-rot",
+    type=float,
+    nargs=4,
+    default=None,
+    metavar=("W", "X", "Y", "Z"),
+    help="Override left wrist camera fixed offset quaternion relative to left_wrist_yaw_link.",
+)
+parser.add_argument(
+    "--left-wrist-camera-convention",
+    choices=("ros", "world", "opengl"),
+    default=None,
+    help="Convention for the left wrist camera override.",
+)
+parser.add_argument(
+    "--drive-left-wrist-camera-from-link",
+    action=argparse.BooleanOptionalAction,
+    default=False,
+    help="Drive the left wrist camera from left_wrist_yaw_link with a fixed local transform each frame.",
+)
 parser.add_argument(
     "--right-wrist-camera-pos",
     type=float,
@@ -196,47 +230,77 @@ def add_video_cameras(env_cfg) -> None:
     if not all(hasattr(env_cfg.scene, name) for name in ("ego_cam", "left_wrist_cam", "right_wrist_cam")):
         wrist_camera_rot = (0.5, -0.5, 0.5, -0.5)
         ego_camera_rot = (0.5, -0.5, 0.5, -0.5)
-        env_cfg.scene.ego_cam_mount = AssetBaseCfg(
-            prim_path="{ENV_REGEX_NS}/Robot/torso_link/ego_cam",
-            spawn=XformPrimCfg(func=spawn_xform_with_default_xform_command),
-            init_state=AssetBaseCfg.InitialStateCfg(pos=(0.0576, 0.0175, 0.4299)),
-        )
-        env_cfg.scene.ego_cam = CameraCfg(
-            prim_path="{ENV_REGEX_NS}/Robot/torso_link/ego_cam/camera",
-            update_period=0,
-            height=args_cli.global_height,
-            width=args_cli.global_width,
-            data_types=["rgb", "distance_to_image_plane"],
-            spawn=_camera_spawn(),
-            offset=CameraCfg.OffsetCfg(pos=(0.0, 0.0, 0.0), rot=ego_camera_rot, convention="ros"),
-        )
-        env_cfg.scene.left_wrist_cam = CameraCfg(
-            prim_path="{ENV_REGEX_NS}/Robot/left_wrist_yaw_link/left_wrist_cam",
-            update_period=0,
-            height=args_cli.global_height,
-            width=args_cli.global_width,
-            data_types=["rgb", "distance_to_image_plane"],
-            spawn=_camera_spawn(),
-            offset=CameraCfg.OffsetCfg(pos=(0.075, 0.035, 0.035), rot=wrist_camera_rot, convention="ros"),
-        )
-        env_cfg.scene.right_wrist_cam = CameraCfg(
-            prim_path="{ENV_REGEX_NS}/Robot/right_wrist_yaw_link/right_wrist_cam",
-            update_period=0,
-            height=args_cli.global_height,
-            width=args_cli.global_width,
-            data_types=["rgb", "distance_to_image_plane"],
-            spawn=_camera_spawn(),
-            offset=CameraCfg.OffsetCfg(pos=(0.075, -0.035, 0.035), rot=wrist_camera_rot, convention="ros"),
-        )
-    apply_right_wrist_camera_override(env_cfg)
-    if args_cli.drive_right_wrist_camera_from_link:
-        if not hasattr(env_cfg.scene, "right_wrist_cam"):
-            raise RuntimeError("Cannot drive right wrist camera because env_cfg.scene.right_wrist_cam is missing.")
+        if args_cli.use_overlay_robot_cameras:
+            env_cfg.scene.ego_cam = CameraCfg(
+                prim_path="{ENV_REGEX_NS}/Robot/torso_link/ego_cam/camera",
+                update_period=0,
+                height=args_cli.global_height,
+                width=args_cli.global_width,
+                data_types=["rgb", "distance_to_image_plane"],
+                spawn=None,
+            )
+            env_cfg.scene.left_wrist_cam = CameraCfg(
+                prim_path="{ENV_REGEX_NS}/Robot/dex1_1_gripper/g1_29dof_mode_15/left_wrist_yaw_link/left_wrist_cam_mount/camera",
+                update_period=0,
+                height=args_cli.global_height,
+                width=args_cli.global_width,
+                data_types=["rgb", "distance_to_image_plane"],
+                spawn=None,
+            )
+            env_cfg.scene.right_wrist_cam = CameraCfg(
+                prim_path="{ENV_REGEX_NS}/Robot/dex1_1_gripper/g1_29dof_mode_15/right_wrist_yaw_link/right_wrist_cam_mount/camera",
+                update_period=0,
+                height=args_cli.global_height,
+                width=args_cli.global_width,
+                data_types=["rgb", "distance_to_image_plane"],
+                spawn=None,
+            )
+        else:
+            env_cfg.scene.ego_cam_mount = AssetBaseCfg(
+                prim_path="{ENV_REGEX_NS}/Robot/torso_link/ego_cam",
+                spawn=XformPrimCfg(func=spawn_xform_with_default_xform_command),
+                init_state=AssetBaseCfg.InitialStateCfg(pos=(0.0576, 0.0175, 0.4299)),
+            )
+            env_cfg.scene.ego_cam = CameraCfg(
+                prim_path="{ENV_REGEX_NS}/Robot/torso_link/ego_cam/camera",
+                update_period=0,
+                height=args_cli.global_height,
+                width=args_cli.global_width,
+                data_types=["rgb", "distance_to_image_plane"],
+                spawn=_camera_spawn(),
+                offset=CameraCfg.OffsetCfg(pos=(0.0, 0.0, 0.0), rot=ego_camera_rot, convention="ros"),
+            )
+            env_cfg.scene.left_wrist_cam = CameraCfg(
+                prim_path="{ENV_REGEX_NS}/Robot/left_wrist_yaw_link/left_wrist_cam",
+                update_period=0,
+                height=args_cli.global_height,
+                width=args_cli.global_width,
+                data_types=["rgb", "distance_to_image_plane"],
+                spawn=_camera_spawn(),
+                offset=CameraCfg.OffsetCfg(pos=(0.075, 0.035, 0.035), rot=wrist_camera_rot, convention="ros"),
+            )
+            env_cfg.scene.right_wrist_cam = CameraCfg(
+                prim_path="{ENV_REGEX_NS}/Robot/right_wrist_yaw_link/right_wrist_cam",
+                update_period=0,
+                height=args_cli.global_height,
+                width=args_cli.global_width,
+                data_types=["rgb", "distance_to_image_plane"],
+                spawn=_camera_spawn(),
+                offset=CameraCfg.OffsetCfg(pos=(0.075, -0.035, 0.035), rot=wrist_camera_rot, convention="ros"),
+            )
+    apply_wrist_camera_override(env_cfg, "left")
+    apply_wrist_camera_override(env_cfg, "right")
+    for side_name in ("left", "right"):
+        if not getattr(args_cli, f"drive_{side_name}_wrist_camera_from_link"):
+            continue
+        camera_attr = f"{side_name}_wrist_cam"
+        if not hasattr(env_cfg.scene, camera_attr):
+            raise RuntimeError(f"Cannot drive {side_name} wrist camera because env_cfg.scene.{camera_attr} is missing.")
         # Keep the camera's local transform fixed to the wrist, but place the Camera prim outside
         # the robot hierarchy. On the composed G1 USD, child Camera prims under wrist links can
         # drift in headless rendering even when the wrist body pose itself is valid.
-        env_cfg.scene.right_wrist_cam.prim_path = "{ENV_REGEX_NS}/DrivenRightWristCamera"
-        env_cfg.scene.right_wrist_cam.offset = CameraCfg.OffsetCfg(
+        getattr(env_cfg.scene, camera_attr).prim_path = f"{{ENV_REGEX_NS}}/Driven{side_name.capitalize()}WristCamera"
+        getattr(env_cfg.scene, camera_attr).offset = CameraCfg.OffsetCfg(
             pos=(0.0, 0.0, 0.0), rot=(1.0, 0.0, 0.0, 0.0), convention="world"
         )
     for camera_name in ("global_view_cam", "ego_cam", "left_wrist_cam", "right_wrist_cam"):
@@ -246,27 +310,25 @@ def add_video_cameras(env_cfg) -> None:
     env_cfg.sim.render_interval = 1
 
 
-def apply_right_wrist_camera_override(env_cfg) -> None:
-    if not any(
-        value is not None
-        for value in (
-            args_cli.right_wrist_camera_pos,
-            args_cli.right_wrist_camera_rot,
-            args_cli.right_wrist_camera_convention,
-        )
-    ):
+def apply_wrist_camera_override(env_cfg, side_name: str) -> None:
+    camera_pos = getattr(args_cli, f"{side_name}_wrist_camera_pos")
+    camera_rot = getattr(args_cli, f"{side_name}_wrist_camera_rot")
+    camera_convention = getattr(args_cli, f"{side_name}_wrist_camera_convention")
+    if not any(value is not None for value in (camera_pos, camera_rot, camera_convention)):
         return
-    if not hasattr(env_cfg.scene, "right_wrist_cam"):
-        raise RuntimeError("Cannot override right wrist camera because env_cfg.scene.right_wrist_cam is missing.")
-    camera_cfg = env_cfg.scene.right_wrist_cam
+    camera_attr = f"{side_name}_wrist_cam"
+    mount_attr = f"{side_name}_wrist_cam_mount"
+    if not hasattr(env_cfg.scene, camera_attr):
+        raise RuntimeError(f"Cannot override {side_name} wrist camera because env_cfg.scene.{camera_attr} is missing.")
+    camera_cfg = getattr(env_cfg.scene, camera_attr)
     offset = camera_cfg.offset
-    if args_cli.right_wrist_camera_pos is not None and hasattr(env_cfg.scene, "right_wrist_cam_mount"):
-        env_cfg.scene.right_wrist_cam_mount.init_state.pos = tuple(float(value) for value in args_cli.right_wrist_camera_pos)
+    if camera_pos is not None and hasattr(env_cfg.scene, mount_attr):
+        getattr(env_cfg.scene, mount_attr).init_state.pos = tuple(float(value) for value in camera_pos)
         pos = (0.0, 0.0, 0.0)
     else:
-        pos = tuple(float(value) for value in (args_cli.right_wrist_camera_pos or offset.pos))
-    rot = tuple(float(value) for value in (args_cli.right_wrist_camera_rot or offset.rot))
-    convention = args_cli.right_wrist_camera_convention or offset.convention
+        pos = tuple(float(value) for value in (camera_pos or offset.pos))
+    rot = tuple(float(value) for value in (camera_rot or offset.rot))
+    convention = camera_convention or offset.convention
     camera_cfg.offset = CameraCfg.OffsetCfg(pos=pos, rot=rot, convention=convention)
 
 
@@ -584,6 +646,29 @@ def inactive_pose(env, robot) -> tuple[list[float], list[float]]:
     return to_list(gripper_center_env(env, robot, body_ids)), quat
 
 
+def driven_wrist_camera_config(robot, side_name: str) -> tuple[int | None, torch.Tensor | None, torch.Tensor | None]:
+    if not getattr(args_cli, f"drive_{side_name}_wrist_camera_from_link"):
+        return None, None, None
+    camera_pos = getattr(args_cli, f"{side_name}_wrist_camera_pos")
+    camera_rot = getattr(args_cli, f"{side_name}_wrist_camera_rot")
+    camera_convention = getattr(args_cli, f"{side_name}_wrist_camera_convention")
+    if camera_pos is None or camera_rot is None:
+        raise ValueError(
+            f"--drive-{side_name}-wrist-camera-from-link requires "
+            f"--{side_name}-wrist-camera-pos and --{side_name}-wrist-camera-rot."
+        )
+    if camera_convention != "world":
+        raise ValueError(f"--drive-{side_name}-wrist-camera-from-link currently expects convention='world'.")
+    body_name = LEFT_WRIST_BODY if side_name == "left" else RIGHT_WRIST_BODY
+    body_ids, _ = robot.find_bodies([body_name], preserve_order=True)
+    if len(body_ids) != 1:
+        raise RuntimeError(f"Could not resolve {side_name} wrist body: {body_name}")
+    local_pos = torch.tensor(camera_pos, dtype=torch.float32, device=robot.device)
+    local_rot = torch.tensor(camera_rot, dtype=torch.float32, device=robot.device)
+    local_rot = local_rot / torch.linalg.norm(local_rot)
+    return body_ids[0], local_pos, local_rot
+
+
 def measure(env, robot, wrist_id: int, joint_ids: list[int], body_ids: list[int], cube_name: str) -> dict:
     cube_env = cube_pos_env(env, cube_name)
     wrist_env = robot.data.body_pos_w[0, wrist_id] - env.unwrapped.scene.env_origins[0]
@@ -788,25 +873,17 @@ def main() -> None:
             "right_wrist_cam": right_wrist_camera,
         }
         wrist_id, wrist_names, body_ids, body_names, joint_ids, joint_names, close_target, open_target = side_config(robot)
-        driven_right_wrist_camera_local_pos = None
-        driven_right_wrist_camera_local_rot = None
-        if args_cli.drive_right_wrist_camera_from_link:
-            if args_cli.right_wrist_camera_pos is None or args_cli.right_wrist_camera_rot is None:
-                raise ValueError(
-                    "--drive-right-wrist-camera-from-link requires --right-wrist-camera-pos and "
-                    "--right-wrist-camera-rot."
-                )
-            if args_cli.right_wrist_camera_convention != "world":
-                raise ValueError("--drive-right-wrist-camera-from-link currently expects convention='world'.")
-            driven_right_wrist_camera_local_pos = torch.tensor(
-                args_cli.right_wrist_camera_pos, dtype=torch.float32, device=robot.device
-            )
-            driven_right_wrist_camera_local_rot = torch.tensor(
-                args_cli.right_wrist_camera_rot, dtype=torch.float32, device=robot.device
-            )
-            driven_right_wrist_camera_local_rot = driven_right_wrist_camera_local_rot / torch.linalg.norm(
-                driven_right_wrist_camera_local_rot
-            )
+        driven_wrist_cameras = {}
+        for side_name, camera in (("left", left_wrist_camera), ("right", right_wrist_camera)):
+            driven_body_id, driven_local_pos, driven_local_rot = driven_wrist_camera_config(robot, side_name)
+            if driven_body_id is not None:
+                driven_wrist_cameras[side_name] = {
+                    "camera": camera,
+                    "body_id": driven_body_id,
+                    "local_pos": driven_local_pos,
+                    "local_rot": driven_local_rot,
+                    "obs_name": f"{side_name}_wrist_cam",
+                }
         default_wrist, active_quat = body_pose_env_frame(env, robot, wrist_id)
         default_center = gripper_center_env(env, robot, body_ids)
         inactive_default_position, inactive_controller_quat = inactive_pose(env, robot)
@@ -854,21 +931,23 @@ def main() -> None:
             attached_cube_delta_w, cube_assist_attached, assist_info = maybe_assist_gripper_grasp(
                 env, robot, body_ids, joint_ids, close_target, args_cli.cube, active_trigger, attached_cube_delta_w
             )
-            if args_cli.drive_right_wrist_camera_from_link:
-                drive_camera_from_body_fixed_transform(
-                    right_wrist_camera,
-                    robot,
-                    wrist_id,
-                    driven_right_wrist_camera_local_pos,
-                    driven_right_wrist_camera_local_rot,
-                )
+            if driven_wrist_cameras:
+                for driven in driven_wrist_cameras.values():
+                    drive_camera_from_body_fixed_transform(
+                        driven["camera"],
+                        robot,
+                        driven["body_id"],
+                        driven["local_pos"],
+                        driven["local_rot"],
+                    )
                 env.unwrapped.sim.render()
-                right_wrist_camera.update(env.unwrapped.sim.get_physics_dt(), force_recompute=True)
+                for driven in driven_wrist_cameras.values():
+                    driven["camera"].update(env.unwrapped.sim.get_physics_dt(), force_recompute=True)
             measured = measure(env, robot, wrist_id, joint_ids, body_ids, args_cli.cube)
             cube_lift = measured["cube_height_env_m"] - float(cube_initial[2].item())
             policy_obs = dict(env.unwrapped.obs_buf.get("policy", {}))
-            if args_cli.drive_right_wrist_camera_from_link:
-                policy_obs.pop("right_wrist_cam", None)
+            for driven in driven_wrist_cameras.values():
+                policy_obs.pop(driven["obs_name"], None)
             if args_cli.dump_wrist_frames and frame % max(args_cli.dump_wrist_every, 1) == 0:
                 wrist_debug_records.append(
                     dump_wrist_debug_frames(
@@ -911,6 +990,9 @@ def main() -> None:
                     "assist_cube_attached": bool(cube_assist_attached),
                     **assist_info,
                     "cube_lift_m": float(cube_lift),
+                    "left_wrist_camera_debug": camera_pose_debug(
+                        left_wrist_camera, env.unwrapped.scene[args_cli.cube].data.root_pos_w[0]
+                    ),
                     "right_wrist_camera_debug": camera_pose_debug(
                         right_wrist_camera, env.unwrapped.scene[args_cli.cube].data.root_pos_w[0]
                     ),
@@ -968,17 +1050,15 @@ def main() -> None:
             "camera_prim_paths": {name: camera.cfg.prim_path for name, camera in cameras.items()},
             "camera_offsets": {name: camera_offset_summary(camera) for name, camera in cameras.items() if hasattr(camera.cfg, "offset")},
             "robot_camera_image_source": "policy_obs when available, sensor.data.output fallback",
-            "drive_right_wrist_camera_from_link": bool(args_cli.drive_right_wrist_camera_from_link),
-            "driven_right_wrist_camera_local_pos": (
-                [float(value) for value in args_cli.right_wrist_camera_pos]
-                if args_cli.drive_right_wrist_camera_from_link and args_cli.right_wrist_camera_pos is not None
-                else None
-            ),
-            "driven_right_wrist_camera_local_rot_world": (
-                [float(value) for value in args_cli.right_wrist_camera_rot]
-                if args_cli.drive_right_wrist_camera_from_link and args_cli.right_wrist_camera_rot is not None
-                else None
-            ),
+            "driven_wrist_cameras": {
+                side_name: {
+                    "body_id": int(item["body_id"]),
+                    "local_pos": to_list(item["local_pos"]),
+                    "local_rot_world": to_list(item["local_rot"]),
+                    "obs_name": item["obs_name"],
+                }
+                for side_name, item in driven_wrist_cameras.items()
+            },
             "wrist_debug_enabled": bool(args_cli.dump_wrist_frames),
             "wrist_debug_every": int(args_cli.dump_wrist_every),
             "wrist_debug_dir": str(wrist_debug_dir) if args_cli.dump_wrist_frames else None,

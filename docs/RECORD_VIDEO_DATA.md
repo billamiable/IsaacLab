@@ -375,7 +375,7 @@ docker exec isaac-lab-232 test -f /workspace/isaaclab/docs/g1_dex1_assets/g1_29d
   --num_success_steps 10
 ```
 
-启动后用 Pico 连接 CloudXR；motion controller 的左右手柄分别控制左右 wrist，trigger 控制对应 Dex1 gripper。`record_demos.py` 默认只导出满足 success 的 demo；任务五 success 以蓝色 `cube_1` 在底、红色 `cube_2` 在中、绿色 `cube_3` 在顶的几何堆叠为准。未显式指定 `--rendering_mode` 时使用 Isaac Lab 默认的 `balanced`。
+启动后用 Pico 连接 CloudXR；motion controller 的左右手柄分别控制左右 wrist，trigger 控制对应 Dex1 gripper。`record_demos.py` 默认只导出满足 success 的 demo；任务五初始摆放为蓝色 `cube_1` 居中、红色 `cube_2` 在机器人右侧、绿色 `cube_3` 在机器人左侧；success 以蓝色在底、红色在中、绿色在顶的几何堆叠为准，并要求左右 Dex1 gripper 松开到 open 附近后连续满足 `--num_success_steps 10` 步才 reset/export。未显式指定 `--rendering_mode` 时使用 Isaac Lab 默认的 `balanced`。
 
 ---
 

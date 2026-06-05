@@ -63,23 +63,25 @@ TABLE_SIZE = (
 )
 TABLE_TOP_Z = TABLE_CENTER[2] + TABLE_SIZE[2] * 0.5
 BLOCK_CENTER_Z = TABLE_TOP_Z + BLOCK_CENTER_Z_OFFSET
+# Initial tabletop layout for the target stack: blue bottom in the center,
+# red on the robot's right, green on the robot's left.
 CUBE_1_POS = (
-    _env_float("G1_DEX1_CUBE_1_X", 0.50),
-    _env_float("G1_DEX1_CUBE_1_Y", -0.16),
+    _env_float("G1_DEX1_CUBE_1_X", 0.56),
+    _env_float("G1_DEX1_CUBE_1_Y", 0.0),
     _env_float("G1_DEX1_CUBE_1_Z", BLOCK_CENTER_Z),
 )
 CUBE_2_POS = (
-    _env_float("G1_DEX1_CUBE_2_X", 0.50),
-    _env_float("G1_DEX1_CUBE_2_Y", 0.16),
+    _env_float("G1_DEX1_CUBE_2_X", 0.52),
+    _env_float("G1_DEX1_CUBE_2_Y", -0.18),
     _env_float("G1_DEX1_CUBE_2_Z", BLOCK_CENTER_Z),
 )
 CUBE_3_POS = (
-    _env_float("G1_DEX1_CUBE_3_X", 0.64),
-    _env_float("G1_DEX1_CUBE_3_Y", 0.0),
+    _env_float("G1_DEX1_CUBE_3_X", 0.52),
+    _env_float("G1_DEX1_CUBE_3_Y", 0.18),
     _env_float("G1_DEX1_CUBE_3_Z", BLOCK_CENTER_Z),
 )
-RIGHT_REACH_CUBE = "cube_1"
-LEFT_REACH_CUBE = "cube_2"
+RIGHT_REACH_CUBE = "cube_2"
+LEFT_REACH_CUBE = "cube_3"
 
 
 def _block_spawn(block_file: str, semantic_class: str) -> UsdFileCfg:
@@ -107,9 +109,11 @@ def g1_dex1_cubes_stacked(
     xy_threshold: float = 0.06,
     height_threshold: float = 0.015,
     height_diff: float = BLOCK_HEIGHT_DIFF,
+    gripper_open_threshold: float = 0.01,
 ):
-    """Check blue-bottom, red-middle, green-top cube stacking success for teleop recording."""
+    """Check cube stacking success after both Dex1 grippers are released open."""
 
+    robot = env.scene[robot_cfg.name]
     cube_1 = env.scene[cube_1_cfg.name]
     cube_2 = env.scene[cube_2_cfg.name]
     cube_3 = env.scene[cube_3_cfg.name]
@@ -127,7 +131,19 @@ def g1_dex1_cubes_stacked(
     stacked = torch.logical_and(pos_diff_c12[:, 2] < 0.0, stacked)
     stacked = torch.logical_and(torch.abs(h_dist_c23 - height_diff) < height_threshold, stacked)
     stacked = torch.logical_and(pos_diff_c23[:, 2] < 0.0, stacked)
-    return stacked
+
+    if not hasattr(env.cfg, "gripper_joint_names"):
+        raise ValueError("No gripper_joint_names found in environment config")
+
+    gripper_joint_ids, _ = robot.find_joints(env.cfg.gripper_joint_names, preserve_order=True)
+    if len(gripper_joint_ids) == 0:
+        raise ValueError("No gripper joints matched gripper_joint_names")
+
+    open_target = torch.tensor(env.cfg.gripper_open_val, dtype=torch.float32, device=env.device)
+    threshold = max(float(getattr(env.cfg, "gripper_threshold", 0.0)), gripper_open_threshold)
+    gripper_joint_pos = robot.data.joint_pos[:, gripper_joint_ids]
+    grippers_open = torch.all(torch.abs(gripper_joint_pos - open_target) < threshold, dim=1)
+    return torch.logical_and(stacked, grippers_open)
 
 
 @configclass

@@ -11,8 +11,8 @@
 | npm | v11.6.2 |
 | Dockerfile | `Dockerfile.2.3.2` |
 | 镜像 Tag | `isaac-lab-teleop:2.3.2` |
-| 文档内任务 | 任务一：`Isaac-PickPlace-GR1T2-Abs-v0`；任务二：`Isaac-Stack-Cube-Galbot-Left-Arm-Gripper-Visuomotor-v0`；任务三：`Isaac-Stack-Cube-Franka-IK-Abs-v0`（motion controllers）；任务四：`Isaac-G1-Dex1-FixedBase-StackCube-Reachability-v0`（G1 Dex1 + Pico motion controllers） |
-| 遥操设备 | handtracking / **`motion_controllers`**（Pico 4 Ultra 手柄位姿 + trigger 夹爪；任务三为右手 Franka，任务四为 G1 Dex1 双手） |
+| 文档内任务 | 任务一：`Isaac-PickPlace-GR1T2-Abs-v0`；任务二：`Isaac-Stack-Cube-Galbot-Left-Arm-Gripper-Visuomotor-v0`；任务三：`Isaac-Stack-Cube-Franka-IK-Abs-v0`（motion controllers）；任务四：`Isaac-G1-Dex1-FixedBase-StackCube-Reachability-v0`；任务五：`Isaac-G1-Dex1-FixedBase-StackCube-Visuomotor-v0` |
+| 遥操设备 | handtracking / **`motion_controllers`**（Pico 4 Ultra 手柄位姿 + trigger 夹爪；任务三为右手 Franka，任务四/五为 G1 Dex1 双手） |
 
 ---
 
@@ -222,7 +222,7 @@ docker exec -it isaac-lab-232 /bin/bash
 - **任务一（GR1 PickPlace）**：`record_demos` 示例带 `--headless`（该任务默认不录相机观测时可常用）。若出现与 **2.3** 类似的 XR /渲染报错，可去掉 `--headless` 改走 GUI。
 - **任务二（Galbot Visuomotor）**：需 **`--enable_cameras`** 写入图像，**不要**加 `--headless`（见 **2.3**）。
 - **任务三（Franka IK Abs + motion controllers）**：与任务一类似走 **`--headless`** 即可；无需 `--enable_pinocchio`（微分 IK）。
-- **任务四（G1 Dex1 + motion controllers）**：先以 pipeline 联调为主，走 **`--headless`**，但必须加 **`--enable_pinocchio`**（Pink IK）。
+- **任务四/五（G1 Dex1 + motion controllers）**：先以 pipeline 联调为主，走 **`--headless`**，但必须加 **`--enable_pinocchio`**（Pink IK）；任务五还需要 **`--enable_cameras`**。
 
 以下命令均在容器内 `/workspace/isaaclab` 执行（`./isaaclab.sh`）。
 
@@ -315,7 +315,7 @@ USE_RELATIVE_MODE=true ./isaaclab.sh -p scripts/tools/record_demos.py \
 
 ### 任务四：`Isaac-G1-Dex1-FixedBase-StackCube-Reachability-v0`（G1 Dex1 + Pico 双手柄）
 
-该任务用于 G1 Dex1 的 Pico motion-controller 录制。场景是固定下半身 G1 Dex1、table、3 个 Nucleus block；左/右 Pico controller 分别控制左/右 wrist，左右 trigger 分别控制左右 Dex1 gripper。
+该任务用于 G1 Dex1 的低维状态联调和 Pico motion-controller pipeline 测试。场景是固定下半身 G1 Dex1、table、3 个 Nucleus block；左/右 Pico controller 分别控制左/右 wrist，左右 trigger 分别控制左右 Dex1 gripper。
 
 | 项目 | 说明 |
 |------|------|
@@ -348,6 +348,34 @@ docker exec isaac-lab-232 test -d /workspace/isaaclab/docs/g1_dex1_assets/meshes
 ```
 
 `--num_demos 0` 表示持续运行直到手动停止；`record_demos.py` 会在满足 success 条件后导出有效 demo。
+
+### 任务五：`Isaac-G1-Dex1-FixedBase-StackCube-Visuomotor-v0`（G1 Dex1 + Pico 双手柄 + 三相机）
+
+该任务用于实际 Pico motion controllers 的 visuomotor 数据录制。它使用带 overlay 相机的 G1 Dex1 USD，policy observation 会包含 `ego_cam`、`left_wrist_cam`、`right_wrist_cam` 三路 RGB，同时保留 action、joint 和 cube 状态。
+
+启动前额外确认 overlay 相机资产可见：
+
+```bash
+docker exec isaac-lab-232 test -f /workspace/isaaclab/docs/g1_dex1_assets/g1_29dof_dex1_1_v4_with_cameras.usda
+```
+
+容器内 `/workspace/isaaclab` 执行：
+
+```bash
+./isaaclab.sh -p scripts/tools/record_demos.py \
+  --task Isaac-G1-Dex1-FixedBase-StackCube-Visuomotor-v0 \
+  --teleop_device motion_controllers \
+  --enable_cameras \
+  --enable_pinocchio \
+  --device cuda:0 \
+  --headless \
+  --info \
+  --dataset_file /workspace/host/out/g1_dex1_pico_motion_controllers_visuomotor.hdf5 \
+  --num_demos 0 \
+  --num_success_steps 10
+```
+
+启动后用 Pico 连接 CloudXR；motion controller 的左右手柄分别控制左右 wrist，trigger 控制对应 Dex1 gripper。`record_demos.py` 默认只导出满足 success 的 demo；如果只是联调控制链路，即使未生成 HDF5 成功样本也不代表遥操失败。
 
 ---
 

@@ -11,6 +11,8 @@ for visuomotor data recording: left wrist, right wrist, and an ego/head view.
 
 from __future__ import annotations
 
+import os
+
 import omni.kit.commands
 from pxr import Sdf, Usd
 
@@ -28,6 +30,7 @@ from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.utils import configclass, to_camel_case
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 
+from isaaclab_tasks.manager_based.locomanipulation.pick_place.g1_dex1_gripper_only_env_cfg import G1_DEX1_ASSET_DIR
 from isaaclab_tasks.manager_based.locomanipulation.pick_place.g1_dex1_stack_cube_reachability_env_cfg import (
     G1Dex1FixedBaseStackCubeReachabilityEnvCfg,
     ObservationsCfg as ReachabilityObservationsCfg,
@@ -38,6 +41,10 @@ CAMERA_HEIGHT = 256
 CAMERA_WIDTH = 256
 CAMERA_UPDATE_PERIOD = 0.0333
 WAREHOUSE_EDGE_SCENE_OFFSET = (2.5, 0.0, 0.0)
+G1_DEX1_VISUOMOTOR_USD_PATH = os.environ.get(
+    "G1_DEX1_VISUOMOTOR_USD_PATH",
+    os.path.join(G1_DEX1_ASSET_DIR, "g1_29dof_dex1_1_v4_with_cameras.usda"),
+)
 
 
 @configclass
@@ -210,8 +217,7 @@ class G1Dex1FixedBaseStackCubeVisuomotorEnvCfg(G1Dex1FixedBaseStackCubeReachabil
     def __post_init__(self):
         super().__post_init__()
 
-        wrist_camera_rot = (0.5, -0.5, 0.5, -0.5)
-        ego_camera_rot = (0.5, -0.5, 0.5, -0.5)
+        self.scene.robot.spawn.usd_path = G1_DEX1_VISUOMOTOR_USD_PATH
 
         self.scene.ground = None
         self.scene.terrain = TerrainImporterCfg(
@@ -222,51 +228,38 @@ class G1Dex1FixedBaseStackCubeVisuomotorEnvCfg(G1Dex1FixedBaseStackCubeReachabil
         )
         _move_task_assets(self.scene, WAREHOUSE_EDGE_SCENE_OFFSET)
 
-        self.scene.ego_cam_mount = AssetBaseCfg(
-            prim_path="{ENV_REGEX_NS}/Robot/torso_link/ego_cam",
-            spawn=XformPrimCfg(func=spawn_xform_with_default_xform_command),
-            init_state=AssetBaseCfg.InitialStateCfg(pos=(0.0576, 0.0175, 0.4299)),
-        )
-
-        self.scene.left_wrist_cam_mount = AssetBaseCfg(
-            prim_path="{ENV_REGEX_NS}/Robot/left_wrist_yaw_link/left_wrist_cam_mount",
-            spawn=XformPrimCfg(func=spawn_xform_with_default_xform_command),
-            init_state=AssetBaseCfg.InitialStateCfg(pos=(0.075, 0.035, 0.035)),
-        )
         self.scene.left_wrist_cam = CameraCfg(
-            prim_path="{ENV_REGEX_NS}/Robot/left_wrist_yaw_link/left_wrist_cam_mount/camera",
+            prim_path=(
+                "{ENV_REGEX_NS}/Robot/dex1_1_gripper/g1_29dof_mode_15/"
+                "left_wrist_yaw_link/left_wrist_cam_mount/camera"
+            ),
             update_period=CAMERA_UPDATE_PERIOD,
             height=CAMERA_HEIGHT,
             width=CAMERA_WIDTH,
             data_types=["rgb", "distance_to_image_plane"],
-            spawn=_camera_spawn(),
-            offset=CameraCfg.OffsetCfg(pos=(0.0, 0.0, 0.0), rot=wrist_camera_rot, convention="ros"),
-        )
-
-        self.scene.right_wrist_cam_mount = AssetBaseCfg(
-            prim_path="{ENV_REGEX_NS}/Robot/right_wrist_yaw_link/right_wrist_cam_mount",
-            spawn=XformPrimCfg(func=spawn_xform_with_default_xform_command),
-            init_state=AssetBaseCfg.InitialStateCfg(pos=(0.075, -0.035, 0.035)),
+            spawn=None,
         )
         self.scene.right_wrist_cam = CameraCfg(
-            prim_path="{ENV_REGEX_NS}/Robot/right_wrist_yaw_link/right_wrist_cam_mount/camera",
+            prim_path=(
+                "{ENV_REGEX_NS}/Robot/dex1_1_gripper/g1_29dof_mode_15/"
+                "right_wrist_yaw_link/right_wrist_cam_mount/camera"
+            ),
             update_period=CAMERA_UPDATE_PERIOD,
             height=CAMERA_HEIGHT,
             width=CAMERA_WIDTH,
             data_types=["rgb", "distance_to_image_plane"],
-            spawn=_camera_spawn(),
-            offset=CameraCfg.OffsetCfg(pos=(0.0, 0.0, 0.0), rot=wrist_camera_rot, convention="ros"),
+            spawn=None,
         )
-
         self.scene.ego_cam = CameraCfg(
             prim_path="{ENV_REGEX_NS}/Robot/torso_link/ego_cam/camera",
             update_period=CAMERA_UPDATE_PERIOD,
             height=CAMERA_HEIGHT,
             width=CAMERA_WIDTH,
             data_types=["rgb", "distance_to_image_plane"],
-            spawn=_camera_spawn(),
-            offset=CameraCfg.OffsetCfg(pos=(0.0, 0.0, 0.0), rot=ego_camera_rot, convention="ros"),
+            spawn=None,
         )
+        for camera_name in ("ego_cam", "left_wrist_cam", "right_wrist_cam"):
+            getattr(self.scene, camera_name).update_latest_camera_pose = True
 
         self.scene.lazy_sensor_update = False
         self.num_rerenders_on_reset = 3

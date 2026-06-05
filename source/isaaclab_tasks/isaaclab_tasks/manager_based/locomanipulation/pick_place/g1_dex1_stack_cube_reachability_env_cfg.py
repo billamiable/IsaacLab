@@ -104,15 +104,12 @@ def g1_dex1_cubes_stacked(
     cube_1_cfg: SceneEntityCfg = SceneEntityCfg("cube_1"),
     cube_2_cfg: SceneEntityCfg = SceneEntityCfg("cube_2"),
     cube_3_cfg: SceneEntityCfg = SceneEntityCfg("cube_3"),
-    xy_threshold: float = 0.04,
-    height_threshold: float = 0.005,
+    xy_threshold: float = 0.06,
+    height_threshold: float = 0.015,
     height_diff: float = BLOCK_HEIGHT_DIFF,
-    atol: float = 0.0001,
-    rtol: float = 0.0001,
 ):
-    """Check Franka-style cube stacking success with all configured Dex1 gripper joints open."""
+    """Check blue-bottom, red-middle, green-top cube stacking success for teleop recording."""
 
-    robot = env.scene[robot_cfg.name]
     cube_1 = env.scene[cube_1_cfg.name]
     cube_2 = env.scene[cube_2_cfg.name]
     cube_3 = env.scene[cube_3_cfg.name]
@@ -126,26 +123,11 @@ def g1_dex1_cubes_stacked(
     h_dist_c23 = torch.norm(pos_diff_c23[:, 2:], dim=1)
 
     stacked = torch.logical_and(xy_dist_c12 < xy_threshold, xy_dist_c23 < xy_threshold)
-    stacked = torch.logical_and(h_dist_c12 - height_diff < height_threshold, stacked)
+    stacked = torch.logical_and(torch.abs(h_dist_c12 - height_diff) < height_threshold, stacked)
     stacked = torch.logical_and(pos_diff_c12[:, 2] < 0.0, stacked)
-    stacked = torch.logical_and(h_dist_c23 - height_diff < height_threshold, stacked)
+    stacked = torch.logical_and(torch.abs(h_dist_c23 - height_diff) < height_threshold, stacked)
     stacked = torch.logical_and(pos_diff_c23[:, 2] < 0.0, stacked)
-
-    if not hasattr(env.cfg, "gripper_joint_names"):
-        raise ValueError("No gripper_joint_names found in environment config")
-
-    gripper_joint_ids, _ = robot.find_joints(env.cfg.gripper_joint_names, preserve_order=True)
-    if len(gripper_joint_ids) == 0:
-        raise ValueError("No gripper joints matched gripper_joint_names")
-
-    open_target = torch.tensor(env.cfg.gripper_open_val, dtype=torch.float32, device=env.device)
-    gripper_open = torch.ones_like(stacked)
-    for joint_id in gripper_joint_ids:
-        gripper_open = torch.logical_and(
-            torch.isclose(robot.data.joint_pos[:, joint_id], open_target, atol=atol, rtol=rtol),
-            gripper_open,
-        )
-    return torch.logical_and(stacked, gripper_open)
+    return stacked
 
 
 @configclass

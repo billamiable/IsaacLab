@@ -236,7 +236,7 @@ class G1Dex1FixedBaseStackCubeVisuomotorEnvCfg(G1Dex1FixedBaseStackCubeReachabil
             update_period=CAMERA_UPDATE_PERIOD,
             height=CAMERA_HEIGHT,
             width=CAMERA_WIDTH,
-            data_types=["rgb", "distance_to_image_plane"],
+            data_types=["rgb"],
             spawn=None,
         )
         self.scene.right_wrist_cam = CameraCfg(
@@ -247,7 +247,7 @@ class G1Dex1FixedBaseStackCubeVisuomotorEnvCfg(G1Dex1FixedBaseStackCubeReachabil
             update_period=CAMERA_UPDATE_PERIOD,
             height=CAMERA_HEIGHT,
             width=CAMERA_WIDTH,
-            data_types=["rgb", "distance_to_image_plane"],
+            data_types=["rgb"],
             spawn=None,
         )
         self.scene.ego_cam = CameraCfg(
@@ -255,7 +255,7 @@ class G1Dex1FixedBaseStackCubeVisuomotorEnvCfg(G1Dex1FixedBaseStackCubeReachabil
             update_period=CAMERA_UPDATE_PERIOD,
             height=CAMERA_HEIGHT,
             width=CAMERA_WIDTH,
-            data_types=["rgb", "distance_to_image_plane"],
+            data_types=["rgb"],
             spawn=None,
         )
         for camera_name in ("ego_cam", "left_wrist_cam", "right_wrist_cam"):

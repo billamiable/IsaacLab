@@ -85,7 +85,7 @@ if "handtracking" in _teleop_lower or "motion_controller" in _teleop_lower:
     app_launcher_args["xr"] = True
 
 # launch the simulator
-app_launcher = AppLauncher(args_cli)
+app_launcher = AppLauncher(app_launcher_args)
 simulation_app = app_launcher.app
 
 """Rest everything follows."""

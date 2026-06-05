@@ -641,7 +641,7 @@ class AppLauncher:
         #   This is different from offscreen_render because this only affects the default viewport and
         #   not other render-products in the scene
         self._render_viewport = True
-        if self._headless and not self._livestream and not launcher_args.get("video", False):
+        if self._headless and not self._livestream and not launcher_args.get("video", False) and not self._xr:
             self._render_viewport = False
 
         # hide_ui flag

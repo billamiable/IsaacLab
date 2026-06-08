@@ -135,12 +135,8 @@ class NullSpacePostureTask(Task):
         # Create joint mask for full configuration size
         self._joint_mask = np.zeros(configuration.model.nq)
 
-        # Create dictionary for joint names to indices. PinkKinematicsConfiguration
-        # exposes this explicitly because some Pinocchio bindings do not expose model.names.
-        if hasattr(configuration, "controlled_joint_names_pinocchio_order"):
-            joint_names = configuration.controlled_joint_names_pinocchio_order
-        else:
-            joint_names = list(configuration.model.names)[1:]
+        # Create dictionary for joint names to indices (exclude root joint)
+        joint_names = configuration.model.names.tolist()[1:]
 
         # Build joint mask efficiently
         for i, joint_name in enumerate(joint_names):

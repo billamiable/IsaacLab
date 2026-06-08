@@ -84,7 +84,7 @@ class PinkIKController:
         # Find the initial joint positions by matching Pink's joint names to robot_cfg.init_state.joint_pos,
         # where the joint_pos keys may be regex patterns and the values are the initial positions.
         # We want to assign to each Pink joint name the value from the first matching regex key in joint_pos.
-        pink_joint_names = self.pink_configuration.all_joint_names_pinocchio_order
+        pink_joint_names = self.pink_configuration.model.names.tolist()[1:]
         joint_pos_dict = robot_cfg.init_state.joint_pos
 
         # Use resolve_matching_names_values to match Pink joint names to joint_pos values
@@ -98,7 +98,7 @@ class PinkIKController:
         for task in cfg.variable_input_tasks:
             # If task is a NullSpacePostureTask, set the target to the initial joint positions
             if isinstance(task, NullSpacePostureTask):
-                task.set_target(self._to_controlled_joint_positions(self.init_joint_positions))
+                task.set_target(self.init_joint_positions)
                 continue
             task.set_target_from_configuration(self.pink_configuration)
         for task in cfg.fixed_input_tasks:
@@ -174,11 +174,6 @@ class PinkIKController:
             [pink_controlled_joint_names.index(isaac_lab_joint) for isaac_lab_joint in isaac_lab_controlled_joint_names]
         )
 
-    def _to_controlled_joint_positions(self, joint_positions_pinocchio_order: np.ndarray) -> np.ndarray:
-        """Return the controlled-joint slice expected by Pink's reduced model."""
-        indices = self.pink_configuration.controlled_joint_indices_pinocchio_order
-        return joint_positions_pinocchio_order[indices]
-
     def update_null_space_joint_targets(self, curr_joint_pos: np.ndarray):
         """Update the null space joint targets.
 
@@ -189,11 +184,9 @@ class PinkIKController:
         Args:
             curr_joint_pos: The current joint positions of shape (num_joints,).
         """
-        joint_positions_pink = curr_joint_pos[self.isaac_lab_to_pink_ordering]
-        controlled_joint_positions = self._to_controlled_joint_positions(joint_positions_pink)
         for task in self.cfg.variable_input_tasks:
             if isinstance(task, NullSpacePostureTask):
-                task.set_target(controlled_joint_positions)
+                task.set_target(curr_joint_pos)
 
     def compute(
         self,

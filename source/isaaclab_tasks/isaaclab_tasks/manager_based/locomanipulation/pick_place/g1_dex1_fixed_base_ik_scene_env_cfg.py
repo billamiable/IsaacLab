@@ -45,12 +45,14 @@ from isaaclab_tasks.manager_based.locomanipulation.pick_place.g1_dex1_gripper_on
 from isaaclab_tasks.manager_based.manipulation.pick_place import mdp as manip_mdp
 
 
-G1_DEX1_ASSET_DIR = os.environ.get("G1_DEX1_ASSET_DIR", "/workspace/isaaclab/docs/g1_dex1_assets")
+G1_DEX1_ASSET_DIR = os.environ.get("G1_DEX1_ASSET_DIR", "/workspace/isaaclab/docs/g1_dex1_runtime_assets")
 G1_DEX1_KINEMATICS_URDF_PATH = os.environ.get(
     "G1_DEX1_KINEMATICS_URDF_PATH",
-    os.path.join(G1_DEX1_ASSET_DIR, "g1_29dof_mode_15_with_dex1_1.urdf"),
+    os.path.join(G1_DEX1_ASSET_DIR, "kinematics", "g1_dex1_kinematics.urdf"),
 )
-G1_DEX1_KINEMATICS_MESH_PATH = os.environ.get("G1_DEX1_KINEMATICS_MESH_PATH", G1_DEX1_ASSET_DIR)
+G1_DEX1_KINEMATICS_MESH_PATH = os.environ.get(
+    "G1_DEX1_KINEMATICS_MESH_PATH", os.path.join(G1_DEX1_ASSET_DIR, "kinematics")
+)
 
 
 G1_DEX1_UPPER_BODY_IK_CONTROLLER_CFG = PinkIKControllerCfg(

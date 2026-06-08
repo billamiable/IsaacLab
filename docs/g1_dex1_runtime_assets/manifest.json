@@ -1,0 +1,79 @@
+{
+  "name": "g1_dex1_runtime_assets",
+  "purpose": "Compact runtime bundle for the Isaac Lab G1 + Dex1 teleop tasks.",
+  "entry_points": {
+    "sim_usd": "usd/g1_dex1_sim.usd",
+    "visuomotor_usd": "usd/g1_dex1_visuomotor.usda",
+    "kinematics_urdf": "kinematics/g1_dex1_kinematics.urdf",
+    "kinematics_mesh_root": "kinematics"
+  },
+  "source_assets": {
+    "sim_usd_source": "../g1_dex1_assets/g1_29dof_dex1_1_v4_test_good.usd",
+    "visuomotor_overlay_source": "scripts/tools/create_g1_dex1_camera_overlay.py",
+    "kinematics_urdf_source": "../g1_dex1_assets/g1_29dof_mode_15_with_dex1_1.urdf",
+    "kinematics_mesh_source": "../g1_dex1_assets/meshes/"
+  },
+  "files": {
+    "usd/g1_dex1_sim.usd": {
+      "bytes": 28102314,
+      "sha256": "427c1b0d84f2ab1a4e379886b33be38460b3e88ffe2ea06b24c8573c02b9e039"
+    },
+    "usd/g1_dex1_visuomotor.usda": {
+      "bytes": 3248,
+      "sha256": "4f0c98ab4b562c5feae90cea8a84d68788a06b19b7bd2d0f2b6af6b7697cbe4c"
+    },
+    "kinematics/g1_dex1_kinematics.urdf": {
+      "bytes": 39239,
+      "sha256": "c3ce6eab56a65cb86ddd6300f18e62b958b86aff7eba6f52d2515ede59eeed0f"
+    }
+  },
+  "mesh_count": 40,
+  "mesh_files": [
+    "kinematics/meshes/Dex1_base_link.STL",
+    "kinematics/meshes/Dex1_finger_link_1.STL",
+    "kinematics/meshes/Dex1_finger_link_2.STL",
+    "kinematics/meshes/dex1_col_1.stl",
+    "kinematics/meshes/dex1_col_2.stl",
+    "kinematics/meshes/head_link.STL",
+    "kinematics/meshes/left_ankle_pitch_link.STL",
+    "kinematics/meshes/left_ankle_roll_link.STL",
+    "kinematics/meshes/left_elbow_link.STL",
+    "kinematics/meshes/left_hip_pitch_link.STL",
+    "kinematics/meshes/left_hip_roll_link.STL",
+    "kinematics/meshes/left_hip_yaw_link.STL",
+    "kinematics/meshes/left_knee_link.STL",
+    "kinematics/meshes/left_rubber_hand.STL",
+    "kinematics/meshes/left_shoulder_pitch_link.STL",
+    "kinematics/meshes/left_shoulder_roll_link.STL",
+    "kinematics/meshes/left_shoulder_yaw_link.STL",
+    "kinematics/meshes/left_wrist_pitch_link_5010.STL",
+    "kinematics/meshes/left_wrist_roll_link_5010.STL",
+    "kinematics/meshes/left_wrist_yaw_link_5010.STL",
+    "kinematics/meshes/logo_link.STL",
+    "kinematics/meshes/pelvis.STL",
+    "kinematics/meshes/pelvis_contour_link.STL",
+    "kinematics/meshes/right_ankle_pitch_link.STL",
+    "kinematics/meshes/right_ankle_roll_link.STL",
+    "kinematics/meshes/right_elbow_link.STL",
+    "kinematics/meshes/right_hip_pitch_link.STL",
+    "kinematics/meshes/right_hip_roll_link.STL",
+    "kinematics/meshes/right_hip_yaw_link.STL",
+    "kinematics/meshes/right_knee_link.STL",
+    "kinematics/meshes/right_rubber_hand.STL",
+    "kinematics/meshes/right_shoulder_pitch_link.STL",
+    "kinematics/meshes/right_shoulder_roll_link.STL",
+    "kinematics/meshes/right_shoulder_yaw_link.STL",
+    "kinematics/meshes/right_wrist_pitch_link_5010.STL",
+    "kinematics/meshes/right_wrist_roll_link_5010.STL",
+    "kinematics/meshes/right_wrist_yaw_link_5010.STL",
+    "kinematics/meshes/torso_link_rev_1_0.STL",
+    "kinematics/meshes/waist_roll_link_rev_1_0.STL",
+    "kinematics/meshes/waist_yaw_link_rev_1_0.STL"
+  ],
+  "notes": [
+    "g1_dex1_sim.usd was exported from a flattened USD stage and should not depend on old g1_dex1_assets USD composition layers.",
+    "g1_dex1_visuomotor.usda is a thin camera overlay that references usd/g1_dex1_sim.usd.",
+    "Pinocchio still uses the URDF and external STL meshes under kinematics/.",
+    "The old docs/g1_dex1_assets directory is intentionally left in place as source/reference material."
+  ]
+}

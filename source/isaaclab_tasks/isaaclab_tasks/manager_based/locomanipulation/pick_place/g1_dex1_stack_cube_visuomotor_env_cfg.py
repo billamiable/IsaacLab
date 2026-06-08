@@ -43,7 +43,7 @@ CAMERA_UPDATE_PERIOD = 0.0333
 WAREHOUSE_EDGE_SCENE_OFFSET = (2.5, 0.0, 0.0)
 G1_DEX1_VISUOMOTOR_USD_PATH = os.environ.get(
     "G1_DEX1_VISUOMOTOR_USD_PATH",
-    os.path.join(G1_DEX1_ASSET_DIR, "g1_29dof_dex1_1_v4_with_cameras.usda"),
+    os.path.join(G1_DEX1_ASSET_DIR, "usd", "g1_dex1_visuomotor.usda"),
 )
 
 

@@ -1,10 +1,12 @@
-# G1 Dex1 Assets
+# G1 Dex1 Source Assets
 
-This directory is the self-contained asset bundle used by `Isaac-G1-Dex1-FixedBase-StackCube-Reachability-v0`.
+This directory is retained as the source/reference asset bundle used to build the compact runtime bundle in `docs/g1_dex1_runtime_assets/`. Current G1 Dex1 task defaults should use `docs/g1_dex1_runtime_assets/`; keep this directory for provenance and rollback.
 
-## Runtime Entry Points
+The original multi-layer setup was used by `Isaac-G1-Dex1-FixedBase-StackCube-Reachability-v0`.
 
-The current pipeline uses two robot descriptions:
+## Original Runtime Entry Points
+
+The original multi-layer pipeline used two robot descriptions:
 
 ```text
 Isaac Sim / PhysX articulation
@@ -35,7 +37,7 @@ docs/g1_dex1_assets/
     └── configuration/*.usd
 ```
 
-The checked-in bundle is about 90M. `meshes/` has been pruned to the 40 STL files referenced by `g1_29dof_mode_15_with_dex1_1.urdf`; old inspire-hand meshes are intentionally not included.
+This source bundle is about 90M. `meshes/` has been pruned to the 40 STL files referenced by `g1_29dof_mode_15_with_dex1_1.urdf`; old inspire-hand meshes are intentionally not included.
 
 ## USD Composition Roles
 

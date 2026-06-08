@@ -319,7 +319,7 @@ USE_RELATIVE_MODE=true ./isaaclab.sh -p scripts/tools/record_demos.py \
 
 | 项目 | 说明 |
 |------|------|
-| 资产 | 默认读取 `/workspace/isaaclab/docs/g1_dex1_assets/`，包含 v4 仿真 USD、Pink IK URDF、必要 USD composition 依赖和 URDF mesh；详见 `docs/g1_dex1_assets/README.md` |
+| 资产 | 默认读取 `/workspace/isaaclab/docs/g1_dex1_runtime_assets/`，包含 flattened 仿真 USD、visuomotor 相机 overlay、Pink IK URDF 和 URDF mesh；详见 `docs/g1_dex1_runtime_assets/README.md` |
 | 输出 | 录制数据默认写入 `--dataset_file` 指定的 HDF5；若希望宿主机直接可见，可把路径设到 `/workspace/host/out/...` |
 | XR 高度 | 若进入后机器人过高/过低，优先调 `g1_dex1_fixed_base_ik_scene_env_cfg.py` 中的 `XrCfg(anchor_pos=(0.0, 0.0, ...))` |
 | 成功判定 | 当前 success 是真堆叠：`cube_2` 叠到 `cube_1`、`cube_3` 叠到 `cube_2`，且 gripper joints 处于 open；未满足时可遥操但不会导出成功 demo |
@@ -327,9 +327,9 @@ USE_RELATIVE_MODE=true ./isaaclab.sh -p scripts/tools/record_demos.py \
 启动前确认资产可见：
 
 ```bash
-docker exec isaac-lab-232 test -f /workspace/isaaclab/docs/g1_dex1_assets/g1_29dof_dex1_1_v4_test_good.usd
-docker exec isaac-lab-232 test -f /workspace/isaaclab/docs/g1_dex1_assets/g1_29dof_mode_15_with_dex1_1.urdf
-docker exec isaac-lab-232 test -d /workspace/isaaclab/docs/g1_dex1_assets/meshes
+docker exec isaac-lab-232 test -f /workspace/isaaclab/docs/g1_dex1_runtime_assets/usd/g1_dex1_sim.usd
+docker exec isaac-lab-232 test -f /workspace/isaaclab/docs/g1_dex1_runtime_assets/kinematics/g1_dex1_kinematics.urdf
+docker exec isaac-lab-232 test -d /workspace/isaaclab/docs/g1_dex1_runtime_assets/kinematics/meshes
 ```
 
 容器内 `/workspace/isaaclab` 执行：
@@ -356,7 +356,7 @@ docker exec isaac-lab-232 test -d /workspace/isaaclab/docs/g1_dex1_assets/meshes
 启动前额外确认 overlay 相机资产可见：
 
 ```bash
-docker exec isaac-lab-232 test -f /workspace/isaaclab/docs/g1_dex1_assets/g1_29dof_dex1_1_v4_with_cameras.usda
+docker exec isaac-lab-232 test -f /workspace/isaaclab/docs/g1_dex1_runtime_assets/usd/g1_dex1_visuomotor.usda
 ```
 
 容器内 `/workspace/isaaclab` 执行：

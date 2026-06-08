@@ -12,8 +12,8 @@ import argparse
 from isaaclab.app import AppLauncher
 
 
-DEFAULT_SOURCE_USD = "/workspace/isaaclab/docs/g1_dex1_assets/g1_29dof_dex1_1_v4_test_good.usd"
-DEFAULT_OUT_USD = "/workspace/isaaclab/docs/g1_dex1_assets/g1_29dof_dex1_1_v4_with_cameras.usda"
+DEFAULT_SOURCE_USD = "/workspace/isaaclab/docs/g1_dex1_runtime_assets/usd/g1_dex1_sim.usd"
+DEFAULT_OUT_USD = "/workspace/isaaclab/docs/g1_dex1_runtime_assets/usd/g1_dex1_visuomotor.usda"
 
 parser = argparse.ArgumentParser(description="Create a G1 Dex1 USD overlay with built-in cameras.")
 parser.add_argument("--source-usd", default=DEFAULT_SOURCE_USD, help="Source robot USD to reference.")

@@ -1,0 +1,7 @@
+interface:
+  display_name: "Isaac Lab Teleop Enablement"
+  short_description: "Adapt Isaac Lab teleop robots"
+  default_prompt: "Use $isaac-lab-teleop-enablement to adapt a robot asset into an Isaac Lab teleoperation task and collect validation evidence."
+
+policy:
+  allow_implicit_invocation: true

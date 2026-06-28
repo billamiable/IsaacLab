@@ -314,6 +314,43 @@ cd /workspace/isaaclab
 Replay mode uses `SessionMode.REPLAY`, so it does not need GUI Start XR or a
 live Pico device.  The recorded MCAP is the input source.
 
+## G1 Dex1 Headless Video Gate
+
+This is the first Lab3 G1+Dex1 migration gate, not the official TriHand G1
+smoke.  It loads the custom G1+Dex1 runtime assets, creates the registered
+`Isaac-G1-Dex1-FixedBase-StackCube-v0` task, and sends a scripted mock Pico
+right-controller stream into the real Lab3 action manager and Pink IK action.
+
+The Lab3 action shape is `18`: left wrist pose `7`, right wrist pose `7`, and
+Dex1 gripper joint targets `4`.  The right trigger maps linearly from Dex1 open
+to close on the two right prismatic finger joints.
+
+Validated command:
+
+```bash
+docker exec isaac-lab-base-300b2 bash -lc 'cd /workspace/isaaclab && ./isaaclab.sh \
+  -p scripts/tools/render_mock_pico_g1_dex1_stack_cube_video.py \
+  --headless --device cuda:0 --rendering_mode balanced \
+  --frames 144 --fps 24 --width 960 --height 540 --keyframe-every 36 \
+  --out-mp4 /workspace/host/out/isaaclab3/g1_dex1_stack_cube/reachable_cube/mock_pico_g1_dex1_stack_cube_reachable.mp4 \
+  --out-json /workspace/host/out/isaaclab3/g1_dex1_stack_cube/reachable_cube/mock_pico_g1_dex1_stack_cube_reachable.json \
+  --out-frames /workspace/host/out/isaaclab3/g1_dex1_stack_cube/reachable_cube/frames'
+```
+
+Observed result:
+
+- `passed: true`
+- `action_dim: 18`
+- `max_lift_m: 0.14727026224136353`
+- `min_attach_distance_m: 0.0036917913239449263`
+- Output video: `out/isaaclab3/g1_dex1_stack_cube/reachable_cube/mock_pico_g1_dex1_stack_cube_reachable.mp4`
+- Output summary: `out/isaaclab3/g1_dex1_stack_cube/reachable_cube/mock_pico_g1_dex1_stack_cube_reachable.json`
+
+The script uses an assisted grasp once the Dex1 front claw center is close to
+the cube and the trigger is pressed.  This keeps the migration gate
+deterministic while still exercising the custom USD, kinematics URDF, Lab3 Pink
+IK action, Dex1 gripper joints, headless rendering, and video/report output.
+
 ## Practical Interpretation
 
 Use these checks as a staged gate:
@@ -323,7 +360,8 @@ Use these checks as a staged gate:
 3. Deprecated retargeter mock: synthetic trigger/thumbstick mappings work.
 4. Official G1 pipeline construction: Isaac Teleop 3.0 pipeline builder works.
 5. Headless env smoke: Isaac Sim can load and step the official G1 teleop task.
-6. MCAP replay: future end-to-end non-GUI validation path for real Pico data.
+6. G1 Dex1 video gate: custom robot asset, Pink IK, Dex1 gripper tail, and headless video output work.
+7. MCAP replay: future end-to-end non-GUI validation path for real Pico data.
 
 For the G1 Dex1 migration, the most relevant reference is the fixed-base G1
 pipeline.  The Dex1 task should replace the TriHand hand output with the Dex1

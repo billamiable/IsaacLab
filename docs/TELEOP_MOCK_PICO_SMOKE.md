@@ -153,6 +153,66 @@ Expected shape:
 - `teleoperation_active_default` is `False`, so a live XR session still needs a
   START event from the client.
 
+## Mock Controller to Real Pink IK Video Smoke
+
+The unit tests above only validate pieces of the stack.  The stronger smoke test
+is the scripted video render below: it creates a Pico-like right motion-controller
+stream, maps it into the official 28D fixed-base G1 action, and lets the real
+Isaac Lab action manager plus Pink IK solver move the robot.
+
+Script:
+
+```text
+scripts/tools/render_mock_pico_g1_fixed_base_ik_video.py
+```
+
+Run from the host against the local overlay container:
+
+```bash
+docker exec isaac-lab-base-300b2 bash -lc '
+cd /workspace/isaaclab
+./isaaclab.sh -p scripts/tools/render_mock_pico_g1_fixed_base_ik_video.py \
+  --headless --device cuda:0 --rendering_mode balanced \
+  --frames 144 --fps 24 --width 960 --height 540 \
+  --out-mp4 /workspace/host/out/isaaclab3/mock_pico_g1_fixed_base_ik/mock_pico_g1_fixed_base_ik.mp4 \
+  --out-json /workspace/host/out/isaaclab3/mock_pico_g1_fixed_base_ik/mock_pico_g1_fixed_base_ik_summary.json \
+  --out-frames /workspace/host/out/isaaclab3/mock_pico_g1_fixed_base_ik/frames
+'
+```
+
+Output is intentionally namespaced under `out/isaaclab3/` so it does not mix
+with Isaac Lab 2.3.2 artifacts.
+
+The mock input model is:
+
+- right controller absolute pose -> right wrist target pose
+- right trigger scalar -> right TriHand close/open command
+- left wrist is held at its reset pose
+
+The script records, for sampled frames, the mock controller target, trigger
+value, actual right wrist pose, wrist tracking error, and wrist motion delta.
+This verifies the important integration point: a controller-like command becomes
+an Isaac Lab action, then Pink IK solves and moves the robot.
+
+Observed output from the first successful run:
+
+```text
+video:   out/isaaclab3/mock_pico_g1_fixed_base_ik/mock_pico_g1_fixed_base_ik.mp4
+summary: out/isaaclab3/mock_pico_g1_fixed_base_ik/mock_pico_g1_fixed_base_ik_summary.json
+frames:  out/isaaclab3/mock_pico_g1_fixed_base_ik/frames/
+passed:  true
+action_dim: 28
+max_right_wrist_motion_delta_m: 0.2086
+min_right_wrist_tracking_error_m: 0.0029
+video: 6.0s, 960x540, 24 fps
+```
+
+This still is not a live `isaacteleop`/CloudXR session.  It is the practical
+pre-MCAP integration slice: mock Pico semantics enter the same action shape that
+the official fixed-base G1 teleop pipeline emits, and the actual Pink IK solver
+is exercised in simulation.  The next stronger non-GUI test is MCAP replay from
+a real Pico recording.
+
 ## Headless Environment Smoke
 
 This validates that the official fixed-base G1 task can launch, reset, and step

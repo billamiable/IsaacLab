@@ -1,0 +1,270 @@
+# Mock Pico Motion Controller Teleop Smoke Tests
+
+This note records the Isaac Lab 3.0-beta2 smoke tests used to validate the
+Pico / motion-controller teleop stack before porting the G1 Dex1 task.
+
+The goal is not to prove that a physical Pico device is connected.  The goal is
+to validate the layers that can be checked without a headset:
+
+- Isaac Lab 3 Docker local overlay is active.
+- `isaaclab_teleop` and `isaacteleop` are installed and importable.
+- Synthetic controller / trigger input can exercise retargeter logic.
+- The official G1 motion-controller teleop pipeline can be constructed.
+- The official fixed-base G1 teleop environment can reset and step headlessly.
+- The non-GUI path for future MCAP replay is available.
+
+## Container
+
+Start the local overlay container from `IsaacLab3/`:
+
+```bash
+bash docker/teleop_dev.sh start
+```
+
+The expected container name is:
+
+```text
+isaac-lab-base-300b2
+```
+
+The local overlay maps host source into the running container, so edits under
+`IsaacLab3/source`, `IsaacLab3/scripts`, `IsaacLab3/docs`, and
+`IsaacLab3/tools` are visible under `/workspace/isaaclab/...` without rebuilding.
+
+## Import Smoke
+
+```bash
+docker exec isaac-lab-base-300b2 bash -lc \
+  'cd /workspace/isaaclab && ./isaaclab.sh -p - <<'"'"'PY'"'"'
+import isaaclab_teleop
+import isaacteleop
+print("isaaclab_teleop", isaaclab_teleop.__file__)
+print("isaacteleop", isaacteleop.__file__)
+PY'
+```
+
+Expected result:
+
+- `isaaclab_teleop` resolves to `/workspace/isaaclab/source/...`.
+- `isaacteleop` resolves to the Isaac Sim Python site-packages path.
+
+This proves the local source overlay and the installed Isaac Teleop package are
+both visible inside the container.
+
+## Pure Teleop Unit Tests
+
+These tests do not require a physical Pico device.
+
+```bash
+docker exec isaac-lab-base-300b2 bash -lc \
+  'cd /workspace/isaaclab && ./isaaclab.sh -p -m pytest source/isaaclab_teleop/test/test_target_frame_rebase.py -q'
+
+docker exec isaac-lab-base-300b2 bash -lc \
+  'cd /workspace/isaaclab && ./isaaclab.sh -p -m pytest source/isaaclab_teleop/test/test_cloudxr_lifecycle.py -q'
+```
+
+Observed result:
+
+```text
+17 passed
+22 passed
+```
+
+Coverage:
+
+- Target-frame rebasing math.
+- Config-driven target frame selection.
+- Mocked CloudXR lifecycle behavior.
+- Non-GUI lifecycle code paths.
+
+## Synthetic Motion-Controller Retargeter Test
+
+```bash
+docker exec isaac-lab-base-300b2 bash -lc \
+  'cd /workspace/isaaclab && ./isaaclab.sh -p -m pytest source/isaaclab_teleop/test/test_retargeters.py -q --tb=short'
+```
+
+Observed result:
+
+```text
+11 passed
+```
+
+This file includes deprecated OpenXR retargeter tests that directly feed mock
+controller arrays such as:
+
+```text
+[pose, inputs]
+```
+
+where the input vector contains thumbstick, trigger, squeeze, and button values.
+The useful checks for Pico-style motion controllers are:
+
+- `G1LowerBodyStandingMotionControllerRetargeter`: thumbstick to locomotion.
+- `G1TriHandUpperBodyMotionControllerGripperRetargeter`: trigger threshold to
+  gripper open/close state.
+- `G1TriHandUpperBodyMotionControllerRetargeter`: controller pose plus hand
+  input to a 28D upper-body action.
+
+This proves that synthetic controller values can exercise the mapping logic, but
+it is not the full Isaac Teleop 3.0 session path.  The full path should use
+`isaacteleop` pipelines, live CloudXR, or MCAP replay.
+
+## Official Fixed-Base G1 Pipeline Smoke
+
+The closest official reference for the current G1 Dex1 migration is:
+
+```text
+Isaac-PickPlace-FixedBaseUpperBodyIK-G1-Abs-v0
+```
+
+Its pipeline is defined in:
+
+```text
+source/isaaclab_tasks/isaaclab_tasks/manager_based/locomanipulation/pick_place/fixed_base_upper_body_ik_g1_env_cfg.py
+```
+
+Run a lightweight pipeline construction smoke:
+
+```bash
+docker exec isaac-lab-base-300b2 bash -lc 'cd /workspace/isaaclab && ./isaaclab.sh -p - <<'"'"'PY'"'"'
+from isaaclab_tasks.manager_based.locomanipulation.pick_place.fixed_base_upper_body_ik_g1_env_cfg import (
+    FixedBaseUpperBodyIKG1EnvCfg,
+    _build_g1_upper_body_pipeline,
+)
+
+pipeline, retargeters = _build_g1_upper_body_pipeline()
+cfg = FixedBaseUpperBodyIKG1EnvCfg()
+
+print("pipeline", type(pipeline))
+print("retargeters", [type(r).__name__ for r in retargeters])
+print("action_cfg", type(cfg.actions.upper_body_ik).__name__)
+print("isaac_teleop", type(cfg.isaac_teleop).__name__, cfg.isaac_teleop is not None)
+print("teleoperation_active_default", cfg.isaac_teleop.teleoperation_active_default)
+PY'
+```
+
+Expected shape:
+
+- Pipeline type: `OutputCombiner`.
+- Retargeters: two `Se3AbsRetargeter` instances for left/right wrists.
+- Action config: `PinkInverseKinematicsActionCfg`.
+- Isaac Teleop config exists.
+- `teleoperation_active_default` is `False`, so a live XR session still needs a
+  START event from the client.
+
+## Headless Environment Smoke
+
+This validates that the official fixed-base G1 task can launch, reset, and step
+in headless Kit.
+
+```bash
+docker exec isaac-lab-base-300b2 bash -lc 'cd /workspace/isaaclab && ./isaaclab.sh -p - <<'"'"'PY'"'"'
+from isaaclab.app import AppLauncher
+
+app_launcher = AppLauncher({"headless": True, "enable_cameras": False})
+simulation_app = app_launcher.app
+
+import gymnasium as gym
+import torch
+import isaaclab_tasks  # noqa: F401
+from isaaclab_tasks.utils import parse_env_cfg
+
+task = "Isaac-PickPlace-FixedBaseUpperBodyIK-G1-Abs-v0"
+env_cfg = parse_env_cfg(task, device="cuda:0", num_envs=1)
+
+print("task", task)
+print("isaac_teleop", type(env_cfg.isaac_teleop).__name__, env_cfg.isaac_teleop is not None)
+
+env = gym.make(task, cfg=env_cfg).unwrapped
+obs, _ = env.reset()
+print("reset_ok", sorted(obs.keys()) if isinstance(obs, dict) else type(obs).__name__)
+print("action_dim", env.action_manager.total_action_dim)
+
+action = torch.zeros((env.num_envs, env.action_manager.total_action_dim), device=env.device)
+for _ in range(3):
+    env.step(action)
+print("step_ok", 3)
+
+env.close()
+simulation_app.close()
+PY'
+```
+
+Observed result:
+
+- The environment launches headlessly.
+- `isaac_teleop` exists on the env config.
+- Action dimension is `28`.
+- `env.reset()` and several `env.step()` calls complete.
+
+Note: zero actions are not valid wrist-pose commands for Pink IK, so warnings
+such as "IK quadratic solver could not find a solution" or "Solution to IK
+contains NaN" are expected for this smoke.  They do not indicate a Docker or
+teleop startup failure.
+
+## Headless Versus GUI XR
+
+In GUI mode, clicking **Start XR** creates the Kit/OpenXR session and exposes
+OpenXR handles to Isaac Teleop.
+
+In headless mode there is no button.  The equivalent session setup is driven by
+command-line flags:
+
+```bash
+--xr --headless --cloudxr_env cloudxrjs
+```
+
+The CloudXR runtime is auto-launched by the teleop script in Isaac Lab
+3.0-beta2.  A physical Pico/Quest client still needs to connect and send START
+or STOP control events.
+
+## MCAP Replay Path
+
+For true non-GUI regression testing, record one live Pico session to MCAP and
+then replay it headlessly.
+
+Live recording example:
+
+```bash
+docker exec -it isaac-lab-base-300b2 bash -lc '
+cd /workspace/isaaclab
+./isaaclab.sh -p scripts/tools/record_demos.py \
+  --task Isaac-PickPlace-FixedBaseUpperBodyIK-G1-Abs-v0 \
+  --num_demos 1 \
+  --dataset_file /workspace/host/out/fixed_base_g1_demo.hdf5 \
+  --mcap_record_path /workspace/host/out/fixed_base_g1_demo.mcap \
+  --xr --headless --cloudxr_env cloudxrjs --device cuda:0
+'
+```
+
+Replay example:
+
+```bash
+docker exec isaac-lab-base-300b2 bash -lc '
+cd /workspace/isaaclab
+./isaaclab.sh -p scripts/environments/teleoperation/teleop_replay_agent.py \
+  --task Isaac-PickPlace-FixedBaseUpperBodyIK-G1-Abs-v0 \
+  --replay_file /workspace/host/out/fixed_base_g1_demo.mcap \
+  --stats_output_file /workspace/host/out/fixed_base_g1_replay_stats.json \
+  --headless --device cuda:0
+'
+```
+
+Replay mode uses `SessionMode.REPLAY`, so it does not need GUI Start XR or a
+live Pico device.  The recorded MCAP is the input source.
+
+## Practical Interpretation
+
+Use these checks as a staged gate:
+
+1. Import smoke: container and overlay are correct.
+2. Pure unit tests: teleop math and lifecycle code are importable and stable.
+3. Deprecated retargeter mock: synthetic trigger/thumbstick mappings work.
+4. Official G1 pipeline construction: Isaac Teleop 3.0 pipeline builder works.
+5. Headless env smoke: Isaac Sim can load and step the official G1 teleop task.
+6. MCAP replay: future end-to-end non-GUI validation path for real Pico data.
+
+For the G1 Dex1 migration, the most relevant reference is the fixed-base G1
+pipeline.  The Dex1 task should replace the TriHand hand output with the Dex1
+1-DoF gripper mapping while keeping the same staged validation strategy.

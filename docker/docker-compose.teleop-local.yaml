@@ -1,0 +1,22 @@
+# Local IsaacLab3 teleop development overlay.
+#
+# Use with:
+#   ./docker/container.py start base --suffix 300b2 \
+#     --files docker-compose.teleop-local.yaml \
+#     --env-files .env.teleop-local
+#
+# The base compose file already bind-mounts source/, scripts/, docs/, and tools/
+# so local code edits are visible inside /workspace/isaaclab.  This overlay only
+# adds a host-visible output directory for smoke tests, screenshots, videos, and
+# HDF5 recordings.
+
+services:
+  isaac-lab-base:
+    environment:
+      - ACCEPT_EULA=Y
+      - PRIVACY_CONSENT=Y
+      - TELEOP_OUT=/workspace/host/out
+    volumes:
+      - type: bind
+        source: ${TELEOP_OUT_HOST:-../../out}
+        target: /workspace/host/out

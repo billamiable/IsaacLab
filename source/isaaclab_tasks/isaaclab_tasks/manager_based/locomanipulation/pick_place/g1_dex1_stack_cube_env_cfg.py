@@ -55,6 +55,7 @@ RIGHT_DEX1_GRIPPER_JOINTS = ["right_dex1_finger_joint_1", "right_dex1_finger_joi
 DEX1_GRIPPER_JOINTS = LEFT_DEX1_GRIPPER_JOINTS + RIGHT_DEX1_GRIPPER_JOINTS
 DEX1_OPEN = 0.02449999935925007
 DEX1_CLOSE = -0.019999999552965164
+IDENTITY_QUAT_XYZW = (0.0, 0.0, 0.0, 1.0)
 
 TABLE_CENTER = (0.58, 0.0, 0.90)
 TABLE_SIZE = (0.60, 0.72, 0.06)
@@ -90,7 +91,7 @@ G1_DEX1_CFG = ArticulationCfg(
     ),
     init_state=ArticulationCfg.InitialStateCfg(
         pos=(0.0, 0.0, 1.0),
-        rot=(1.0, 0.0, 0.0, 0.0),
+        rot=IDENTITY_QUAT_XYZW,
         joint_pos={".*": 0.0},
         joint_vel={".*": 0.0},
     ),
@@ -242,25 +243,25 @@ class G1Dex1StackCubeSceneCfg(InteractiveSceneCfg):
             collision_props=sim_utils.CollisionPropertiesCfg(),
             visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.45, 0.47, 0.45), roughness=0.75),
         ),
-        init_state=RigidObjectCfg.InitialStateCfg(pos=TABLE_CENTER, rot=(1.0, 0.0, 0.0, 0.0)),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=TABLE_CENTER, rot=IDENTITY_QUAT_XYZW),
     )
 
     cube_1 = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Cube_1",
         spawn=_block_spawn("blue_block.usd", "cube_1"),
-        init_state=RigidObjectCfg.InitialStateCfg(pos=CUBE_1_POS, rot=(1.0, 0.0, 0.0, 0.0)),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=CUBE_1_POS, rot=IDENTITY_QUAT_XYZW),
     )
 
     cube_2 = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Cube_2",
         spawn=_block_spawn("red_block.usd", "cube_2"),
-        init_state=RigidObjectCfg.InitialStateCfg(pos=CUBE_2_POS, rot=(1.0, 0.0, 0.0, 0.0)),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=CUBE_2_POS, rot=IDENTITY_QUAT_XYZW),
     )
 
     cube_3 = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Cube_3",
         spawn=_block_spawn("green_block.usd", "cube_3"),
-        init_state=RigidObjectCfg.InitialStateCfg(pos=CUBE_3_POS, rot=(1.0, 0.0, 0.0, 0.0)),
+        init_state=RigidObjectCfg.InitialStateCfg(pos=CUBE_3_POS, rot=IDENTITY_QUAT_XYZW),
     )
 
     ground = AssetBaseCfg(

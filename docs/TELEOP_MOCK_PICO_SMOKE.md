@@ -325,6 +325,9 @@ The Lab3 action shape is `18`: left wrist pose `7`, right wrist pose `7`, and
 Dex1 gripper joint targets `4`.  The right trigger maps linearly from Dex1 open
 to close on the two right prismatic finger joints.
 
+Lab3 asset and root-pose quaternions are `xyzw`; the G1 Dex1 env uses
+`IDENTITY_QUAT_XYZW = (0, 0, 0, 1)` for robot, table, and cube init states.
+
 Validated command:
 
 ```bash
@@ -332,19 +335,19 @@ docker exec isaac-lab-base-300b2 bash -lc 'cd /workspace/isaaclab && ./isaaclab.
   -p scripts/tools/render_mock_pico_g1_dex1_stack_cube_video.py \
   --headless --device cuda:0 --rendering_mode balanced \
   --frames 144 --fps 24 --width 960 --height 540 --keyframe-every 36 \
-  --out-mp4 /workspace/host/out/isaaclab3/g1_dex1_stack_cube/reachable_cube/mock_pico_g1_dex1_stack_cube_reachable.mp4 \
-  --out-json /workspace/host/out/isaaclab3/g1_dex1_stack_cube/reachable_cube/mock_pico_g1_dex1_stack_cube_reachable.json \
-  --out-frames /workspace/host/out/isaaclab3/g1_dex1_stack_cube/reachable_cube/frames'
+  --out-mp4 /workspace/host/out/isaaclab3/g1_dex1_stack_cube/upright_quat_fix/mock_pico_g1_dex1_stack_cube_upright_quat_fix.mp4 \
+  --out-json /workspace/host/out/isaaclab3/g1_dex1_stack_cube/upright_quat_fix/mock_pico_g1_dex1_stack_cube_upright_quat_fix.json \
+  --out-frames /workspace/host/out/isaaclab3/g1_dex1_stack_cube/upright_quat_fix/frames'
 ```
 
 Observed result:
 
 - `passed: true`
 - `action_dim: 18`
-- `max_lift_m: 0.14727026224136353`
-- `min_attach_distance_m: 0.0036917913239449263`
-- Output video: `out/isaaclab3/g1_dex1_stack_cube/reachable_cube/mock_pico_g1_dex1_stack_cube_reachable.mp4`
-- Output summary: `out/isaaclab3/g1_dex1_stack_cube/reachable_cube/mock_pico_g1_dex1_stack_cube_reachable.json`
+- `max_lift_m: 0.15230613946914673`
+- `min_attach_distance_m: 0.00039528371416963637`
+- Output video: `out/isaaclab3/g1_dex1_stack_cube/upright_quat_fix/mock_pico_g1_dex1_stack_cube_upright_quat_fix.mp4`
+- Output summary: `out/isaaclab3/g1_dex1_stack_cube/upright_quat_fix/mock_pico_g1_dex1_stack_cube_upright_quat_fix.json`
 
 The script uses an assisted grasp once the Dex1 front claw center is close to
 the cube and the trigger is pressed.  This keeps the migration gate

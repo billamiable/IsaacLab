@@ -189,9 +189,9 @@ def _compose_action(
     return action
 
 
-def _quat_apply_wxyz(quat: torch.Tensor, vec: torch.Tensor) -> torch.Tensor:
-    q_xyz = quat[1:]
-    q_w = quat[0]
+def _quat_apply_xyzw(quat: torch.Tensor, vec: torch.Tensor) -> torch.Tensor:
+    q_xyz = quat[:3]
+    q_w = quat[3]
     return vec + 2.0 * torch.cross(q_xyz, torch.cross(q_xyz, vec, dim=0) + q_w * vec, dim=0)
 
 
@@ -204,8 +204,8 @@ def _finger_contact_points_world(robot, body_ids: list[int]) -> tuple[torch.Tens
     finger_2_pos = robot.data.body_pos_w.torch[0, body_ids[2]]
     finger_1_quat = robot.data.body_quat_w.torch[0, body_ids[1]]
     finger_2_quat = robot.data.body_quat_w.torch[0, body_ids[2]]
-    finger_1_contact = finger_1_pos + _quat_apply_wxyz(finger_1_quat, _local_vec(robot, DEX1_FINGER_1_PAD_CENTER))
-    finger_2_contact = finger_2_pos + _quat_apply_wxyz(finger_2_quat, _local_vec(robot, DEX1_FINGER_2_PAD_CENTER))
+    finger_1_contact = finger_1_pos + _quat_apply_xyzw(finger_1_quat, _local_vec(robot, DEX1_FINGER_1_PAD_CENTER))
+    finger_2_contact = finger_2_pos + _quat_apply_xyzw(finger_2_quat, _local_vec(robot, DEX1_FINGER_2_PAD_CENTER))
     return finger_1_contact, finger_2_contact
 
 
@@ -285,8 +285,8 @@ def main() -> int:
 
         camera = env.scene["mock_pico_front_cam"]
         camera.set_world_poses_from_view(
-            torch.tensor([[1.05, -0.58, 1.25]], dtype=torch.float32, device=env.device),
-            torch.tensor([[0.34, -0.05, 0.98]], dtype=torch.float32, device=env.device),
+            torch.tensor([[1.65, -1.20, 1.45]], dtype=torch.float32, device=env.device),
+            torch.tensor([[0.28, -0.03, 0.92]], dtype=torch.float32, device=env.device),
         )
 
         left_home_pos, left_home_quat = _body_pose(env, LEFT_WRIST)

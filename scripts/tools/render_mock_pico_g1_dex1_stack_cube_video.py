@@ -12,9 +12,9 @@ physical Pico device with a scripted controller stream:
 * mock right-controller position -> right wrist target
 * mock right trigger scalar -> Dex1 prismatic gripper joint targets
 
-The cube is assisted once the front Dex1 claws close around it.  This keeps the
-acceptance test deterministic while still verifying the actual robot, action
-manager, Pink IK, gripper joints, rendering, and output-video path.
+By default the cube must be lifted through contact physics.  An assisted mode is
+available for debugging the teleop/control path, but the physical mode never
+writes the cube root pose during grasp.
 """
 
 """Launch Isaac Sim Simulator first."""
@@ -48,14 +48,16 @@ parser.add_argument("--cube-y", type=float, default=-0.02)
 parser.add_argument("--cube-z", type=float, default=0.9535)
 parser.add_argument("--pregrasp-height", type=float, default=0.12)
 parser.add_argument("--grasp-z-offset", type=float, default=0.012)
-parser.add_argument("--lift-height", type=float, default=0.14)
-parser.add_argument("--retreat-x", type=float, default=-0.03)
+parser.add_argument("--lift-height", type=float, default=0.08)
+parser.add_argument("--retreat-x", type=float, default=-0.02)
 parser.add_argument("--grasp-center-x-offset", type=float, default=0.0)
 parser.add_argument("--grasp-center-y-offset", type=float, default=0.0)
 parser.add_argument("--grasp-center-z-offset", type=float, default=0.0)
+parser.add_argument("--grasp-mode", choices=("physical", "assisted"), default="physical")
 parser.add_argument("--attach-trigger-threshold", type=float, default=0.65)
 parser.add_argument("--attach-distance-threshold", type=float, default=0.085)
 parser.add_argument("--lift-success-threshold", type=float, default=0.04)
+parser.add_argument("--physical-hold-frames", type=int, default=18)
 parser.add_argument("--keyframe-every", type=int, default=48)
 parser.add_argument("--skip-kit-cleanup", action=argparse.BooleanOptionalAction, default=True)
 AppLauncher.add_app_launcher_args(parser)
@@ -153,15 +155,15 @@ def _lerp(a: torch.Tensor, b: torch.Tensor, t: float) -> torch.Tensor:
 
 def _phase(frame_idx: int, total_frames: int) -> tuple[str, float]:
     u = frame_idx / max(total_frames - 1, 1)
-    if u < 0.16:
-        return "home_open", _smoothstep(u / 0.16)
-    if u < 0.48:
-        return "approach_open", _smoothstep((u - 0.16) / 0.32)
-    if u < 0.64:
-        return "close_claws", _smoothstep((u - 0.48) / 0.16)
-    if u < 0.86:
-        return "lift_closed", _smoothstep((u - 0.64) / 0.22)
-    return "hold_open", _smoothstep((u - 0.86) / 0.14)
+    if u < 0.14:
+        return "home_open", _smoothstep(u / 0.14)
+    if u < 0.42:
+        return "approach_open", _smoothstep((u - 0.14) / 0.28)
+    if u < 0.62:
+        return "close_claws", _smoothstep((u - 0.42) / 0.20)
+    if u < 0.88:
+        return "lift_closed", _smoothstep((u - 0.62) / 0.26)
+    return "hold_closed", _smoothstep((u - 0.88) / 0.12)
 
 
 def _gripper_targets(trigger: float, device: torch.device) -> torch.Tensor:
@@ -220,6 +222,9 @@ def _maybe_attach_cube(env, cube_name: str, trigger: float, attached: bool, body
     center_w = _gripper_center_world(robot, body_ids)
     distance = float(torch.linalg.norm(center_w - cube.data.root_pos_w.torch[0]).item())
 
+    if args_cli.grasp_mode != "assisted":
+        return False, distance
+
     if not attached:
         attached = trigger >= args_cli.attach_trigger_threshold and distance <= args_cli.attach_distance_threshold
 
@@ -248,9 +253,9 @@ def _put_overlay(frame: np.ndarray, phase_name: str, trigger: float, lift_m: flo
     out = frame.copy()
     lines = [
         "IsaacLab3 mock Pico -> G1 Dex1 stack-cube task",
-        f"phase: {phase_name}  trigger: {trigger:.2f}  attached: {attached}",
-        f"{args_cli.cube} lift: {lift_m:.3f} m",
-        f"frame {frame_idx:03d}",
+        f"mode: {args_cli.grasp_mode}  phase: {phase_name}",
+        f"trigger: {trigger:.2f}  assisted_attached: {attached}",
+        f"{args_cli.cube} lift: {lift_m:.3f} m  frame {frame_idx:03d}",
     ]
     y = 30
     for line in lines:
@@ -328,6 +333,8 @@ def main() -> int:
         attached = False
         max_lift = 0.0
         min_attach_distance = float("inf")
+        consecutive_lift_frames = 0
+        max_consecutive_lift_frames = 0
 
         for frame_idx in range(args_cli.frames):
             phase_name, alpha = _phase(frame_idx, args_cli.frames)
@@ -345,7 +352,7 @@ def main() -> int:
                 trigger = 1.0
             else:
                 target = lift_wrist
-                trigger = 1.0 - 0.5 * alpha
+                trigger = 1.0 if args_cli.grasp_mode == "physical" else 1.0 - 0.5 * alpha
 
             action = _compose_action(left_home_pos, left_home_quat, target, right_home_quat, trigger, env.device)
             env.step(action)
@@ -356,6 +363,11 @@ def main() -> int:
             cube_now = _cube_pos(env, args_cli.cube)
             lift_m = float((cube_now[2] - cube_initial[2]).item())
             max_lift = max(max_lift, lift_m)
+            if lift_m >= args_cli.lift_success_threshold:
+                consecutive_lift_frames += 1
+            else:
+                consecutive_lift_frames = 0
+            max_consecutive_lift_frames = max(max_consecutive_lift_frames, consecutive_lift_frames)
 
             frame = _put_overlay(_camera_rgb(camera), phase_name, trigger, lift_m, attached, frame_idx)
             writer.write(cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
@@ -386,15 +398,22 @@ def main() -> int:
                     }
                 )
 
+        physical_passed = max_consecutive_lift_frames >= args_cli.physical_hold_frames
+        assisted_passed = attached and max_lift >= args_cli.lift_success_threshold
         summary.update(
             {
-                "passed": bool(attached and max_lift >= args_cli.lift_success_threshold),
+                "passed": bool(physical_passed if args_cli.grasp_mode == "physical" else assisted_passed),
                 "action_dim": 18,
                 "cube": args_cli.cube,
+                "grasp_mode": args_cli.grasp_mode,
                 "initial_cube_pos": [float(v) for v in cube_initial.detach().cpu().tolist()],
                 "max_lift_m": float(max_lift),
+                "lift_success_threshold_m": float(args_cli.lift_success_threshold),
+                "max_consecutive_lift_frames": int(max_consecutive_lift_frames),
+                "required_physical_hold_frames": int(args_cli.physical_hold_frames),
                 "min_attach_distance_m": float(min_attach_distance),
-                "used_assisted_grasp": True,
+                "used_assisted_grasp": bool(args_cli.grasp_mode == "assisted"),
+                "ever_assisted_attached": bool(attached),
                 "dex1_open": float(DEX1_OPEN),
                 "dex1_close": float(DEX1_CLOSE),
             }

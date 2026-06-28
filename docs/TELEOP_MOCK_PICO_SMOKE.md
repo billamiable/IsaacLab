@@ -328,31 +328,48 @@ to close on the two right prismatic finger joints.
 Lab3 asset and root-pose quaternions are `xyzw`; the G1 Dex1 env uses
 `IDENTITY_QUAT_XYZW = (0, 0, 0, 1)` for robot, table, and cube init states.
 
-Validated command:
+Validated physical grasp command:
 
 ```bash
 docker exec isaac-lab-base-300b2 bash -lc 'cd /workspace/isaaclab && ./isaaclab.sh \
   -p scripts/tools/render_mock_pico_g1_dex1_stack_cube_video.py \
   --headless --device cuda:0 --rendering_mode balanced \
-  --frames 144 --fps 24 --width 960 --height 540 --keyframe-every 36 \
-  --out-mp4 /workspace/host/out/isaaclab3/g1_dex1_stack_cube/upright_quat_fix/mock_pico_g1_dex1_stack_cube_upright_quat_fix.mp4 \
-  --out-json /workspace/host/out/isaaclab3/g1_dex1_stack_cube/upright_quat_fix/mock_pico_g1_dex1_stack_cube_upright_quat_fix.json \
-  --out-frames /workspace/host/out/isaaclab3/g1_dex1_stack_cube/upright_quat_fix/frames'
+  --grasp-mode physical \
+  --frames 192 --fps 24 --width 960 --height 540 --keyframe-every 48 \
+  --out-mp4 /workspace/host/out/isaaclab3/g1_dex1_stack_cube/physical_grasp_v2/mock_pico_g1_dex1_stack_cube_physical_grasp_v2.mp4 \
+  --out-json /workspace/host/out/isaaclab3/g1_dex1_stack_cube/physical_grasp_v2/mock_pico_g1_dex1_stack_cube_physical_grasp_v2.json \
+  --out-frames /workspace/host/out/isaaclab3/g1_dex1_stack_cube/physical_grasp_v2/frames'
 ```
 
-Observed result:
+Observed physical result:
 
 - `passed: true`
-- `action_dim: 18`
-- `max_lift_m: 0.15230613946914673`
-- `min_attach_distance_m: 0.00039528371416963637`
-- Output video: `out/isaaclab3/g1_dex1_stack_cube/upright_quat_fix/mock_pico_g1_dex1_stack_cube_upright_quat_fix.mp4`
-- Output summary: `out/isaaclab3/g1_dex1_stack_cube/upright_quat_fix/mock_pico_g1_dex1_stack_cube_upright_quat_fix.json`
+- `grasp_mode: physical`
+- `used_assisted_grasp: false`
+- `ever_assisted_attached: false`
+- `max_lift_m: 0.07877188920974731`
+- `max_consecutive_lift_frames: 41` with `required_physical_hold_frames: 18`
+- `min_attach_distance_m: 0.011476660147309303`
+- Output video: `out/isaaclab3/g1_dex1_stack_cube/physical_grasp_v2/mock_pico_g1_dex1_stack_cube_physical_grasp_v2.mp4`
+- Output summary: `out/isaaclab3/g1_dex1_stack_cube/physical_grasp_v2/mock_pico_g1_dex1_stack_cube_physical_grasp_v2.json`
 
-The script uses an assisted grasp once the Dex1 front claw center is close to
-the cube and the trigger is pressed.  This keeps the migration gate
-deterministic while still exercising the custom USD, kinematics URDF, Lab3 Pink
-IK action, Dex1 gripper joints, headless rendering, and video/report output.
+This is the required G1 Dex1 grasp gate.  In `physical` mode the script never
+writes the cube root pose during grasp.  Success requires the cube to stay above
+the lift threshold for a minimum number of consecutive frames.  The older
+assisted behavior is still available with `--grasp-mode assisted`, but it should
+only be used to debug the custom USD, kinematics URDF, Lab3 Pink IK action,
+Dex1 gripper joints, headless rendering, and output-video path.
+
+Contact notes:
+
+- The task binds high-friction material to the blocks and table for the physical
+  gate.
+- Robot gripper collision friction currently relies on the asset defaults.  A
+  root-level material bind is intentionally not used because many robot collision
+  prims are instanced; stricter future tuning should use non-instanced Dex1
+  collision prims or a more specific USD overlay.
+- The quaternion audit for this custom G1 Dex1 path found no remaining Lab2
+  identity quaternion literals; the task uses `xyzw` root-pose quaternions.
 
 ## Practical Interpretation
 
@@ -363,7 +380,7 @@ Use these checks as a staged gate:
 3. Deprecated retargeter mock: synthetic trigger/thumbstick mappings work.
 4. Official G1 pipeline construction: Isaac Teleop 3.0 pipeline builder works.
 5. Headless env smoke: Isaac Sim can load and step the official G1 teleop task.
-6. G1 Dex1 video gate: custom robot asset, Pink IK, Dex1 gripper tail, and headless video output work.
+6. G1 Dex1 physical grasp video gate: custom robot asset, Pink IK, Dex1 gripper tail, contact grasp, and headless video output work.
 7. MCAP replay: future end-to-end non-GUI validation path for real Pico data.
 
 For the G1 Dex1 migration, the most relevant reference is the fixed-base G1

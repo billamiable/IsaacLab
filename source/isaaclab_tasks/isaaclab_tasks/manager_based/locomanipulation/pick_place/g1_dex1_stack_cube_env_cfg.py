@@ -56,6 +56,16 @@ DEX1_GRIPPER_JOINTS = LEFT_DEX1_GRIPPER_JOINTS + RIGHT_DEX1_GRIPPER_JOINTS
 DEX1_OPEN = 0.02449999935925007
 DEX1_CLOSE = -0.019999999552965164
 IDENTITY_QUAT_XYZW = (0.0, 0.0, 0.0, 1.0)
+DEX1_GRASP_MATERIAL = sim_utils.RigidBodyMaterialCfg(
+    static_friction=3.0,
+    dynamic_friction=2.5,
+    restitution=0.0,
+)
+TABLE_MATERIAL = sim_utils.RigidBodyMaterialCfg(
+    static_friction=1.5,
+    dynamic_friction=1.0,
+    restitution=0.0,
+)
 
 TABLE_CENTER = (0.58, 0.0, 0.90)
 TABLE_SIZE = (0.60, 0.72, 0.06)
@@ -178,12 +188,13 @@ def _block_spawn(block_file: str, semantic_class: str) -> UsdFileCfg:
         scale=(1.0, 1.0, 1.0),
         rigid_props=sim_utils.RigidBodyPropertiesCfg(
             solver_position_iteration_count=16,
-            solver_velocity_iteration_count=1,
+            solver_velocity_iteration_count=4,
             max_angular_velocity=1000.0,
             max_linear_velocity=1000.0,
             max_depenetration_velocity=5.0,
             disable_gravity=False,
         ),
+        physics_material=DEX1_GRASP_MATERIAL,
         semantic_tags=[("class", semantic_class)],
     )
 
@@ -241,6 +252,7 @@ class G1Dex1StackCubeSceneCfg(InteractiveSceneCfg):
             size=TABLE_SIZE,
             rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
             collision_props=sim_utils.CollisionPropertiesCfg(),
+            physics_material=TABLE_MATERIAL,
             visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.45, 0.47, 0.45), roughness=0.75),
         ),
         init_state=RigidObjectCfg.InitialStateCfg(pos=TABLE_CENTER, rot=IDENTITY_QUAT_XYZW),

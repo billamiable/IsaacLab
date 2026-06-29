@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import os
 
+from isaaclab_teleop import IsaacTeleopCfg, XrCfg
+
 import isaaclab.envs.mdp as base_mdp
 import isaaclab.sim as sim_utils
 import torch
@@ -77,6 +79,130 @@ BLOCK_CENTER_Z = TABLE_TOP_Z + BLOCK_CENTER_Z_OFFSET
 CUBE_1_POS = (0.56, 0.0, BLOCK_CENTER_Z)  # blue, stack base
 CUBE_2_POS = (0.52, -0.18, BLOCK_CENTER_Z)  # red, robot right
 CUBE_3_POS = (0.52, 0.18, BLOCK_CENTER_Z)  # green, robot left
+
+
+def _build_g1_dex1_motion_controller_pipeline():
+    """Build a Lab3 IsaacTeleop pipeline for G1 Dex1 motion-controller teleop.
+
+    The output action matches ``G1_DEX1_UPPER_BODY_IK_ACTION_CFG``:
+    [left_wrist_pose(7), right_wrist_pose(7), dex1_gripper_joints(4)].
+    Controller grip poses are treated as the Dex1 claw-center pose, so a fixed
+    negative X offset maps the controller position back to the wrist target.
+    """
+
+    from isaacteleop.retargeters import Se3AbsRetargeter, Se3RetargeterConfig, TensorReorderer
+    from isaacteleop.retargeters.gripper_retargeter import (
+        BaseRetargeter,
+        ControllerInput,
+        ControllerInputIndex,
+        FloatType,
+        OptionalType,
+        RetargeterIO,
+        RetargeterIOType,
+        TensorGroupType,
+    )
+    from isaacteleop.retargeting_engine.deviceio_source_nodes import ControllersSource
+    from isaacteleop.retargeting_engine.interface import OutputCombiner, ValueInput
+    from isaacteleop.retargeting_engine.tensor_types import TransformMatrix
+
+    class Dex1MotionControllerRetargeter(BaseRetargeter):
+        """Map left/right controller triggers to the four Dex1 prismatic joints."""
+
+        def __init__(self, name: str):
+            super().__init__(name=name)
+
+        def input_spec(self) -> RetargeterIOType:
+            return {
+                ControllersSource.LEFT: OptionalType(ControllerInput()),
+                ControllersSource.RIGHT: OptionalType(ControllerInput()),
+            }
+
+        def output_spec(self) -> RetargeterIOType:
+            return {
+                "dex1_joints": TensorGroupType(
+                    "dex1_joints", [FloatType(name) for name in DEX1_GRIPPER_JOINTS]
+                )
+            }
+
+        @staticmethod
+        def _trigger(controller_group) -> float:
+            if controller_group.is_none:
+                return 0.0
+            return max(0.0, min(1.0, float(controller_group[ControllerInputIndex.TRIGGER_VALUE])))
+
+        def _compute_fn(self, inputs: RetargeterIO, outputs: RetargeterIO, context) -> None:
+            left_trigger = self._trigger(inputs[ControllersSource.LEFT])
+            right_trigger = self._trigger(inputs[ControllersSource.RIGHT])
+            left_target = DEX1_OPEN + left_trigger * (DEX1_CLOSE - DEX1_OPEN)
+            right_target = DEX1_OPEN + right_trigger * (DEX1_CLOSE - DEX1_OPEN)
+            out = outputs["dex1_joints"]
+            out[0] = float(left_target)
+            out[1] = float(left_target)
+            out[2] = float(right_target)
+            out[3] = float(right_target)
+
+    controllers = ControllersSource(name="controllers")
+    transform_input = ValueInput("world_T_anchor", TransformMatrix())
+    transformed_controllers = controllers.transformed(transform_input.output(ValueInput.VALUE))
+
+    gripper_center_x_offset = -0.15050695836544037
+    left_se3 = Se3AbsRetargeter(
+        Se3RetargeterConfig(
+            input_device=ControllersSource.LEFT,
+            zero_out_xy_rotation=False,
+            use_wrist_rotation=False,
+            use_wrist_position=True,
+            target_offset_x=gripper_center_x_offset,
+            target_offset_roll=45.0,
+            target_offset_pitch=180.0,
+            target_offset_yaw=-90.0,
+        ),
+        name="left_ee_pose",
+    )
+    right_se3 = Se3AbsRetargeter(
+        Se3RetargeterConfig(
+            input_device=ControllersSource.RIGHT,
+            zero_out_xy_rotation=False,
+            use_wrist_rotation=False,
+            use_wrist_position=True,
+            target_offset_x=gripper_center_x_offset,
+            target_offset_roll=-135.0,
+            target_offset_pitch=0.0,
+            target_offset_yaw=90.0,
+        ),
+        name="right_ee_pose",
+    )
+    dex1_gripper = Dex1MotionControllerRetargeter(name="dex1_gripper")
+
+    connected_left_se3 = left_se3.connect({ControllersSource.LEFT: transformed_controllers.output(ControllersSource.LEFT)})
+    connected_right_se3 = right_se3.connect({ControllersSource.RIGHT: transformed_controllers.output(ControllersSource.RIGHT)})
+    connected_dex1_gripper = dex1_gripper.connect(
+        {
+            ControllersSource.LEFT: transformed_controllers.output(ControllersSource.LEFT),
+            ControllersSource.RIGHT: transformed_controllers.output(ControllersSource.RIGHT),
+        }
+    )
+
+    left_ee_elements = ["l_pos_x", "l_pos_y", "l_pos_z", "l_quat_x", "l_quat_y", "l_quat_z", "l_quat_w"]
+    right_ee_elements = ["r_pos_x", "r_pos_y", "r_pos_z", "r_quat_x", "r_quat_y", "r_quat_z", "r_quat_w"]
+    reorderer = TensorReorderer(
+        input_config={
+            "left_ee_pose": left_ee_elements,
+            "right_ee_pose": right_ee_elements,
+            "dex1_joints": DEX1_GRIPPER_JOINTS,
+        },
+        output_order=left_ee_elements + right_ee_elements + DEX1_GRIPPER_JOINTS,
+        name="action_reorderer",
+        input_types={"left_ee_pose": "array", "right_ee_pose": "array", "dex1_joints": "scalar"},
+    )
+    connected_reorderer = reorderer.connect(
+        {
+            "left_ee_pose": connected_left_se3.output("ee_pose"),
+            "right_ee_pose": connected_right_se3.output("ee_pose"),
+            "dex1_joints": connected_dex1_gripper.output("dex1_joints"),
+        }
+    )
+    return OutputCombiner({"action": connected_reorderer.output("output")})
 
 
 G1_DEX1_CFG = ArticulationCfg(
@@ -369,3 +495,10 @@ class G1Dex1FixedBaseStackCubeEnvCfg(ManagerBasedRLEnvCfg):
 
         self.actions.upper_body_ik.controller.urdf_path = G1_DEX1_KINEMATICS_URDF_PATH
         self.actions.upper_body_ik.controller.mesh_path = G1_DEX1_KINEMATICS_MESH_PATH
+
+        self.xr = XrCfg(anchor_pos=(0.0, 0.0, -0.30), anchor_rot=IDENTITY_QUAT_XYZW)
+        self.isaac_teleop = IsaacTeleopCfg(
+            pipeline_builder=_build_g1_dex1_motion_controller_pipeline,
+            sim_device=self.sim.device,
+            xr_cfg=self.xr,
+        )

@@ -46,6 +46,20 @@ parser.add_argument("--cube", choices=("cube_1", "cube_2", "cube_3"), default="c
 parser.add_argument("--cube-x", type=float, default=0.36)
 parser.add_argument("--cube-y", type=float, default=-0.02)
 parser.add_argument("--cube-z", type=float, default=0.9535)
+parser.add_argument("--table-z-offset", type=float, default=0.0)
+parser.add_argument("--object-usd", default=None)
+parser.add_argument("--object-scale", type=float, default=1.0)
+parser.add_argument("--object-mass", type=float, default=None, help="Optional spawned object mass override in kg.")
+parser.add_argument("--object-roll-deg", type=float, default=0.0)
+parser.add_argument("--object-pitch-deg", type=float, default=0.0)
+parser.add_argument("--object-yaw-deg", type=float, default=0.0)
+parser.add_argument("--block-scale-x", type=float, default=1.0)
+parser.add_argument("--block-scale-y", type=float, default=1.0)
+parser.add_argument("--block-scale-z", type=float, default=1.0)
+parser.add_argument("--use-teleop-right-target-quat", action="store_true")
+parser.add_argument("--right-target-roll-deg", type=float, default=-135.0)
+parser.add_argument("--right-target-pitch-deg", type=float, default=0.0)
+parser.add_argument("--right-target-yaw-deg", type=float, default=90.0)
 parser.add_argument("--pregrasp-height", type=float, default=0.12)
 parser.add_argument("--grasp-z-offset", type=float, default=0.012)
 parser.add_argument("--lift-height", type=float, default=0.08)
@@ -53,6 +67,12 @@ parser.add_argument("--retreat-x", type=float, default=-0.02)
 parser.add_argument("--grasp-center-x-offset", type=float, default=0.0)
 parser.add_argument("--grasp-center-y-offset", type=float, default=0.0)
 parser.add_argument("--grasp-center-z-offset", type=float, default=0.0)
+parser.add_argument(
+    "--grasp-depth-x-offset",
+    type=float,
+    default=0.0,
+    help="Extra world-X offset for front-claw insertion depth. Negative is shallower for the right-hand setup.",
+)
 parser.add_argument("--grasp-mode", choices=("physical", "assisted"), default="physical")
 parser.add_argument("--attach-trigger-threshold", type=float, default=0.65)
 parser.add_argument("--attach-distance-threshold", type=float, default=0.085)
@@ -83,6 +103,7 @@ import cv2
 import gymnasium as gym
 import numpy as np
 import torch
+from scipy.spatial.transform import Rotation
 
 import isaaclab.sim as sim_utils
 import isaaclab_tasks  # noqa: F401
@@ -104,6 +125,15 @@ RIGHT_DEX1_BODIES = ["right_dex1_base_link", "right_dex1_finger_link_1", "right_
 RIGHT_WRIST_TO_GRIPPER_CENTER = (0.15050695836544037, -6.29723072052002e-05, -8.344650268554688e-06)
 DEX1_FINGER_1_PAD_CENTER = (0.1082509, -0.0315503, 0.0)
 DEX1_FINGER_2_PAD_CENTER = (0.1097630, 0.0313668, 0.0)
+DEX1_NOMINAL_PAD_DEPTH_M = 0.5 * (DEX1_FINGER_1_PAD_CENTER[0] + DEX1_FINGER_2_PAD_CENTER[0])
+DEX1_NOMINAL_PAD_SEPARATION_M = DEX1_FINGER_2_PAD_CENTER[1] - DEX1_FINGER_1_PAD_CENTER[1]
+
+
+def _euler_xyz_quat_xyzw(roll_deg: float, pitch_deg: float, yaw_deg: float) -> tuple[float, float, float, float]:
+    """Return an Isaac Lab xyzw quaternion matching isaacteleop's XYZ Euler convention."""
+
+    quat = Rotation.from_euler("XYZ", [roll_deg, pitch_deg, yaw_deg], degrees=True).as_quat()
+    return tuple(float(v) for v in quat)
 
 
 def _ensure_output_dirs() -> None:
@@ -113,7 +143,23 @@ def _ensure_output_dirs() -> None:
 
 
 def _configure_scene(env_cfg) -> None:
-    getattr(env_cfg.scene, args_cli.cube).init_state.pos = [args_cli.cube_x, args_cli.cube_y, args_cli.cube_z]
+    if abs(args_cli.table_z_offset) > 1.0e-9:
+        table_pos = list(env_cfg.scene.table.init_state.pos)
+        table_pos[2] += args_cli.table_z_offset
+        env_cfg.scene.table.init_state.pos = table_pos
+
+    object_cfg = getattr(env_cfg.scene, args_cli.cube)
+    object_cfg.init_state.pos = [args_cli.cube_x, args_cli.cube_y, args_cli.cube_z]
+    object_cfg.init_state.rot = _euler_xyz_quat_xyzw(
+        args_cli.object_roll_deg, args_cli.object_pitch_deg, args_cli.object_yaw_deg
+    )
+    if args_cli.object_usd is not None:
+        object_cfg.spawn.usd_path = args_cli.object_usd
+        object_cfg.spawn.scale = (args_cli.object_scale, args_cli.object_scale, args_cli.object_scale)
+    if args_cli.object_mass is not None:
+        object_cfg.spawn.mass_props = sim_utils.MassPropertiesCfg(mass=args_cli.object_mass)
+    elif (args_cli.block_scale_x, args_cli.block_scale_y, args_cli.block_scale_z) != (1.0, 1.0, 1.0):
+        object_cfg.spawn.scale = (args_cli.block_scale_x, args_cli.block_scale_y, args_cli.block_scale_z)
     env_cfg.scene.mock_pico_front_cam = CameraCfg(
         prim_path="{ENV_REGEX_NS}/MockPicoDex1FrontCamera",
         update_period=0.0,
@@ -296,11 +342,23 @@ def main() -> int:
 
         left_home_pos, left_home_quat = _body_pose(env, LEFT_WRIST)
         right_home_pos, right_home_quat = _body_pose(env, RIGHT_WRIST)
+        if args_cli.use_teleop_right_target_quat:
+            right_home_quat = torch.tensor(
+                _euler_xyz_quat_xyzw(
+                    args_cli.right_target_roll_deg, args_cli.right_target_pitch_deg, args_cli.right_target_yaw_deg
+                ),
+                dtype=torch.float32,
+                device=env.device,
+            )
         cube_initial = _cube_pos(env, args_cli.cube)
         wrist_to_gripper = torch.tensor(RIGHT_WRIST_TO_GRIPPER_CENTER, dtype=torch.float32, device=env.device)
 
         grasp_center = cube_initial + torch.tensor(
-            [args_cli.grasp_center_x_offset, args_cli.grasp_center_y_offset, args_cli.grasp_center_z_offset],
+            [
+                args_cli.grasp_center_x_offset + args_cli.grasp_depth_x_offset,
+                args_cli.grasp_center_y_offset,
+                args_cli.grasp_center_z_offset,
+            ],
             dtype=torch.float32,
             device=env.device,
         )
@@ -316,6 +374,37 @@ def main() -> int:
 
         for _ in range(args_cli.warmup_steps):
             env.step(_compose_action(left_home_pos, left_home_quat, right_home_pos, right_home_quat, 0.0, env.device))
+
+        # Re-plan from the settled object pose.  Substituted USD assets may drop to the table during warmup.
+        left_home_pos, left_home_quat = _body_pose(env, LEFT_WRIST)
+        right_home_pos, right_home_quat = _body_pose(env, RIGHT_WRIST)
+        if args_cli.use_teleop_right_target_quat:
+            right_home_quat = torch.tensor(
+                _euler_xyz_quat_xyzw(
+                    args_cli.right_target_roll_deg, args_cli.right_target_pitch_deg, args_cli.right_target_yaw_deg
+                ),
+                dtype=torch.float32,
+                device=env.device,
+            )
+        cube_initial = _cube_pos(env, args_cli.cube)
+        grasp_center = cube_initial + torch.tensor(
+            [
+                args_cli.grasp_center_x_offset + args_cli.grasp_depth_x_offset,
+                args_cli.grasp_center_y_offset,
+                args_cli.grasp_center_z_offset,
+            ],
+            dtype=torch.float32,
+            device=env.device,
+        )
+        grasp_wrist = grasp_center - wrist_to_gripper + torch.tensor(
+            [0.0, 0.0, args_cli.grasp_z_offset], dtype=torch.float32, device=env.device
+        )
+        pregrasp_wrist = grasp_wrist + torch.tensor(
+            [0.0, 0.0, args_cli.pregrasp_height], dtype=torch.float32, device=env.device
+        )
+        lift_wrist = grasp_wrist + torch.tensor(
+            [args_cli.retreat_x, 0.0, args_cli.lift_height], dtype=torch.float32, device=env.device
+        )
 
         writer = cv2.VideoWriter(
             args_cli.out_mp4,
@@ -376,6 +465,9 @@ def main() -> int:
                 frame_path = Path(args_cli.out_frames) / f"frame_{frame_idx:04d}_{phase_name}.png"
                 cv2.imwrite(str(frame_path), cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
                 right_wrist_now, _ = _body_pose(env, RIGHT_WRIST)
+                finger_1_contact_w, finger_2_contact_w = _finger_contact_points_world(robot, right_body_ids)
+                finger_1_contact_env = finger_1_contact_w - env.scene.env_origins[0]
+                finger_2_contact_env = finger_2_contact_w - env.scene.env_origins[0]
                 gripper_center_env = _gripper_center_world(robot, right_body_ids) - env.scene.env_origins[0]
                 summary["records"].append(
                     {
@@ -388,6 +480,11 @@ def main() -> int:
                         "target_right_wrist_pos": [float(v) for v in target.detach().cpu().tolist()],
                         "actual_right_wrist_pos": [float(v) for v in right_wrist_now.detach().cpu().tolist()],
                         "right_gripper_center_pos": [float(v) for v in gripper_center_env.detach().cpu().tolist()],
+                        "right_finger_1_pad_pos": [float(v) for v in finger_1_contact_env.detach().cpu().tolist()],
+                        "right_finger_2_pad_pos": [float(v) for v in finger_2_contact_env.detach().cpu().tolist()],
+                        "right_finger_pad_separation_m": float(
+                            torch.linalg.norm(finger_1_contact_w - finger_2_contact_w).item()
+                        ),
                         "cube_pos": [float(v) for v in cube_now.detach().cpu().tolist()],
                         "right_gripper_joint_pos": [
                             float(v) for v in robot.data.joint_pos.torch[0, right_joint_ids].detach().cpu().tolist()
@@ -405,6 +502,32 @@ def main() -> int:
                 "passed": bool(physical_passed if args_cli.grasp_mode == "physical" else assisted_passed),
                 "action_dim": 18,
                 "cube": args_cli.cube,
+                "table_z_offset": float(args_cli.table_z_offset),
+                "object_usd": args_cli.object_usd,
+                "object_scale": float(args_cli.object_scale),
+                "object_mass": None if args_cli.object_mass is None else float(args_cli.object_mass),
+                "block_scale_xyz": [
+                    float(args_cli.block_scale_x),
+                    float(args_cli.block_scale_y),
+                    float(args_cli.block_scale_z),
+                ],
+                "object_rpy_deg": [
+                    float(args_cli.object_roll_deg),
+                    float(args_cli.object_pitch_deg),
+                    float(args_cli.object_yaw_deg),
+                ],
+                "grasp_center_offset": [
+                    float(args_cli.grasp_center_x_offset),
+                    float(args_cli.grasp_center_y_offset),
+                    float(args_cli.grasp_center_z_offset),
+                ],
+                "grasp_depth_x_offset": float(args_cli.grasp_depth_x_offset),
+                "use_teleop_right_target_quat": bool(args_cli.use_teleop_right_target_quat),
+                "right_target_rpy_deg": [
+                    float(args_cli.right_target_roll_deg),
+                    float(args_cli.right_target_pitch_deg),
+                    float(args_cli.right_target_yaw_deg),
+                ],
                 "grasp_mode": args_cli.grasp_mode,
                 "initial_cube_pos": [float(v) for v in cube_initial.detach().cpu().tolist()],
                 "max_lift_m": float(max_lift),
@@ -416,6 +539,8 @@ def main() -> int:
                 "ever_assisted_attached": bool(attached),
                 "dex1_open": float(DEX1_OPEN),
                 "dex1_close": float(DEX1_CLOSE),
+                "dex1_nominal_pad_depth_m": float(DEX1_NOMINAL_PAD_DEPTH_M),
+                "dex1_nominal_pad_separation_m": float(DEX1_NOMINAL_PAD_SEPARATION_M),
             }
         )
         return 0 if summary["passed"] else 2

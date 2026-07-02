@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SimReady 资产抓取验证方法 - G1 Dex1 / Isaac Lab 2.3.2</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7f8fa;
+      --panel: #ffffff;
+      --ink: #1f2933;
+      --muted: #5b6673;
+      --line: #d8dee8;
+      --accent: #1664c0;
+      --ok: #0b7a53;
+      --bad: #b42318;
+      --warn: #9a5b00;
+      --code: #f1f4f8;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    main { max-width: 1120px; margin: 0 auto; padding: 40px 24px 72px; }
+    header { margin-bottom: 28px; border-bottom: 1px solid var(--line); padding-bottom: 20px; }
+    h1, h2, h3 { margin: 0; line-height: 1.25; }
+    h1 { font-size: 30px; letter-spacing: 0; }
+    h2 { margin-top: 34px; font-size: 22px; }
+    h3 { margin-top: 24px; font-size: 17px; }
+    p { margin: 10px 0; }
+    .subtitle { color: var(--muted); margin-top: 10px; max-width: 920px; }
+    .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 18px 20px; margin: 16px 0; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+    .callout { border-left: 4px solid var(--accent); background: #eef6ff; padding: 12px 14px; margin: 16px 0; border-radius: 6px; }
+    .warning { border-left-color: var(--warn); background: #fff7e6; }
+    .failure { border-left-color: var(--bad); background: #fff1f0; }
+    table { width: 100%; border-collapse: collapse; margin: 14px 0 22px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; display: block; overflow-x: auto; white-space: nowrap; }
+    th, td { border-bottom: 1px solid var(--line); padding: 9px 11px; text-align: left; vertical-align: top; }
+    th { background: #eef1f5; font-weight: 650; }
+    tr:last-child td { border-bottom: 0; }
+    code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 13px; }
+    code { background: var(--code); padding: 1px 5px; border-radius: 4px; }
+    pre { margin: 12px 0 18px; padding: 14px 16px; overflow-x: auto; background: #111827; color: #e5e7eb; border-radius: 8px; line-height: 1.45; }
+    ul, ol { margin: 8px 0 12px 22px; padding: 0; }
+    li { margin: 5px 0; }
+    .tag { display: inline-block; border-radius: 999px; padding: 2px 8px; font-size: 12px; font-weight: 650; }
+    .tag.ok { color: var(--ok); background: #e8f6ef; }
+    .tag.bad { color: var(--bad); background: #fde8e7; }
+    .tag.warn { color: var(--warn); background: #fff2d8; }
+    .small { color: var(--muted); font-size: 13px; }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>SimReady 资产抓取验证方法</h1>
+    <p class="subtitle">
+      基于 Isaac Lab 2.3.2、Unitree G1 + Dex1_1 并联夹爪、mock Pico motion controller
+      的物理抓取验证记录。本文参考 Isaac Lab 3.0-beta2 版本的方法，但重点记录 2.3.2 的复现方式和坑点：
+      四元数顺序、Euler 约定、物体 settle/warmup、输出目录隔离，以及 2.3.2 teleop retargeter 对结果的影响。
+    </p>
+  </header>
+
+  <section class="panel">
+    <h2>1. 验证目标</h2>
+    <p>
+      这个验证不是通用抓取算法，也不是证明任意物体都能自动抓取。它的目标是：给定一个 SimReady 或 YCB USD 资产，
+      在固定机器人、固定夹爪、固定 scripted mock Pico 输入下，检查物体的几何、碰撞、质量、摩擦和姿态稳定性是否能支持基础接触抓取。
+    </p>
+    <div class="grid">
+      <div>
+        <h3>验证覆盖</h3>
+        <ul>
+          <li>资产能被 Isaac Lab 2.3.2 任务加载。</li>
+          <li>物体 visual mesh / collider / bbox 与预期一致。</li>
+          <li>Dex1 夹爪通过物理接触夹住并抬起物体。</li>
+          <li>失败能归因到几何尺寸、质量、摩擦、碰撞、稳定性或可达性。</li>
+        </ul>
+      </div>
+      <div>
+        <h3>不覆盖</h3>
+        <ul>
+          <li>不做自动 grasp pose 搜索。</li>
+          <li>不做复杂避障或动作规划。</li>
+          <li>不证明真机一定成功。</li>
+          <li>不评估视觉策略训练效果。</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>2. Isaac Lab 2.3.2 抓取逻辑</h2>
+    <div class="callout">
+      本实验使用 <strong>physical grasp</strong>：脚本只控制 G1 右手腕目标位置和 Dex1 夹爪开闭，
+      不使用 attach、吸附、直接写物体 pose 等辅助逻辑。物体必须靠夹爪和物体之间的接触力被抬起。
+    </div>
+    <p>
+      2.3.2 版本使用脚本：<code>scripts/tools/render_g1_dex1_simready_grasp_validation_video.py</code>。
+      它走旧版 teleop/motion-controller retargeter 路径，把 mock controller pose 和 trigger 映射到 G1 上肢 IK 与 Dex1 夹爪动作。
+    </p>
+    <ol>
+      <li>加载 <code>Isaac-G1-Dex1-FixedBase-StackCube-Reachability-v0</code>。</li>
+      <li>用 <code>--object-usd</code> 把默认 cube 替换成待测 USD。</li>
+      <li>用 <code>--object-roll-deg / --object-pitch-deg / --object-yaw-deg</code> 设置物体姿态。</li>
+      <li>用 mock Pico 右手 controller 的位姿生成右腕目标。</li>
+      <li>用 mock trigger 从 0 到 1 控制 Dex1 右夹爪闭合。</li>
+      <li>执行 home open -> pregrasp -> insert/open -> close -> lift -> hold。</li>
+      <li>如果物体抬升超过阈值并连续保持若干帧，则判定 physical grasp 通过。</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>3. 推荐实验设计</h2>
+    <p>
+      对盒状物体，建议沿用 Lab3 guide 的轻量矩阵：让三个独立尺寸分别沿竖直 Z 方向放置，
+      每个姿态下都让较短、可夹住的水平边朝向 gripper 闭合方向，再对每个姿态测 low / mid / high 三个抓取高度。
+    </p>
+    <table>
+      <thead>
+        <tr><th>姿态</th><th>含义</th><th>抓取方向</th><th>目的</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>Zthin_clamp_mid</code></td>
+          <td>薄尺寸沿竖直 Z，大面平放</td>
+          <td>夹较短的可夹水平边，通常是中等边</td>
+          <td>验证低重心平放状态</td>
+        </tr>
+        <tr>
+          <td><code>Zmid_clamp_thin</code></td>
+          <td>中等尺寸沿竖直 Z</td>
+          <td>夹薄边</td>
+          <td>验证中等高度状态</td>
+        </tr>
+        <tr>
+          <td><code>Zlong_clamp_thin</code></td>
+          <td>长尺寸沿竖直 Z，高重心竖立</td>
+          <td>夹薄边</td>
+          <td>验证高重心和 settle 稳定性</td>
+        </tr>
+      </tbody>
+    </table>
+    <p>
+      对每个物体，最小矩阵是 <code>3 个放置姿态 x 3 个抓取高度 = 9 个 case</code>。
+      当前 sugar + cracker 示例一共 18 个 case。
+    </p>
+  </section>
+
+  <section>
+    <h2>4. 2.3.2 特有坑点</h2>
+    <div class="warning">
+      <strong>四元数和 Euler 约定是最大坑。</strong>
+      Lab3 的 SimReady 脚本用 <code>scipy.spatial.transform.Rotation.from_euler("XYZ")</code> 生成 <code>xyzw</code> 四元数；
+      Isaac Lab 2.3.2 的 <code>init_state.rot</code> 需要 <code>wxyz</code>。
+      直接复用数值会导致 <code>Zmid_clamp_thin</code> 这类组合旋转摆错，表现为“物体没有让短边朝向 gripper”。
+    </div>
+    <table>
+      <thead>
+        <tr><th>问题</th><th>表现</th><th>正确处理</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Lab3/Lab2 四元数顺序不同</td>
+          <td>同一组 RPY 在 2.3.2 里物体朝向不对</td>
+          <td>Lab3 RPY -> SciPy <code>Rotation.from_euler("XYZ")</code> -> <code>xyzw</code> -> 重排成 2.3.2 <code>wxyz</code></td>
+        </tr>
+        <tr>
+          <td>不要用 2.3.2 的 <code>math_utils.quat_from_euler_xyz</code> 复刻 Lab3 脚本</td>
+          <td><code>(-90, 0, -90)</code> 等组合旋转与 Lab3 SciPy 结果不等价</td>
+          <td>在脚本里显式使用 SciPy，保证和 Lab3 guide 的 pose 定义一致</td>
+        </tr>
+        <tr>
+          <td>高重心物体 warmup 不够</td>
+          <td>抓取开始前物体左右晃动；gripper 一靠近就把物体撞偏或只抬起一个角</td>
+          <td>对 <code>Zlong_clamp_thin</code> 这类高盒子增加 <code>--warmup-steps</code>，当前 cracker 使用 120</td>
+        </tr>
+        <tr>
+          <td>输出路径容易混淆</td>
+          <td>Lab3 和 Lab2 结果覆盖或写到容器内部临时路径</td>
+          <td>2.3.2 一律写到 <code>/workspace/host/out/isaaclab232/...</code></td>
+        </tr>
+        <tr>
+          <td>2.3.2 retargeter 与 Lab3 direct-action 不完全一致</td>
+          <td>同样物体姿态下，gripper center、接触路径和闭合误差略有差别</td>
+          <td>优先保证物体 pose 正确，再用视频和 JSON 指标判断是否为控制路径差异</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>5. 当前 2.3.2 示例结果</h2>
+    <p>
+      当前 canonical 输出目录：
+      <code>out/isaaclab232/g1_dex1_ycb_short_edge_pose_height_sweep_pose_fix/</code>。
+      结果包含 18 个单视角 MP4、18 个 JSON、<code>summary.md</code>、<code>summary.json</code>、<code>comparison_to_lab3.md</code>。
+    </p>
+    <table>
+      <thead>
+        <tr><th>object</th><th>mass</th><th>pose</th><th>low</th><th>mid</th><th>high</th><th>备注</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>sugar box</td><td>0.02 kg</td><td><code>Zthin_clamp_mid</code></td>
+          <td><span class="tag ok">pass</span></td><td><span class="tag ok">pass</span></td><td><span class="tag ok">pass</span></td>
+          <td>平放姿态，夹中等边成功</td>
+        </tr>
+        <tr>
+          <td>sugar box</td><td>0.02 kg</td><td><code>Zmid_clamp_thin</code></td>
+          <td><span class="tag ok">pass</span></td><td><span class="tag ok">pass</span></td><td><span class="tag ok">pass</span></td>
+          <td>四元数修正后，短边朝向 gripper，三高度通过</td>
+        </tr>
+        <tr>
+          <td>sugar box</td><td>0.02 kg</td><td><code>Zlong_clamp_thin</code></td>
+          <td><span class="tag ok">pass</span></td><td><span class="tag ok">pass</span></td><td><span class="tag ok">pass</span></td>
+          <td>长边竖直，仍可夹薄边</td>
+        </tr>
+        <tr>
+          <td>cracker box</td><td>0.04 kg</td><td><code>Zthin_clamp_mid</code></td>
+          <td><span class="tag bad">fail</span></td><td><span class="tag bad">fail</span></td><td><span class="tag bad">fail</span></td>
+          <td>预期失败：需要夹 cracker 中等边，宽度超过 Dex1 有效开口</td>
+        </tr>
+        <tr>
+          <td>cracker box</td><td>0.04 kg</td><td><code>Zmid_clamp_thin</code></td>
+          <td><span class="tag ok">pass</span></td><td><span class="tag ok">pass</span></td><td><span class="tag ok">pass</span></td>
+          <td>夹薄边，物理抬升成功</td>
+        </tr>
+        <tr>
+          <td>cracker box</td><td>0.04 kg</td><td><code>Zlong_clamp_thin</code></td>
+          <td><span class="tag ok">pass</span></td><td><span class="tag ok">pass</span></td><td><span class="tag ok">pass</span></td>
+          <td>高重心姿态；使用 <code>warmup_steps=120</code> 等待物体稳定</td>
+        </tr>
+      </tbody>
+    </table>
+    <p>
+      修正后总结果为 <code>15/18 pass</code>。剩余 3 个 failure 都是 cracker <code>Zthin_clamp_mid</code>，属于几何开口限制导致的预期 failure。
+    </p>
+  </section>
+
+  <section>
+    <h2>6. 单 case 命令模板</h2>
+    <pre><code>docker exec -w /workspace/isaaclab isaac-lab-232 ./isaaclab.sh \
+  -p scripts/tools/render_g1_dex1_simready_grasp_validation_video.py \
+  --headless --enable_cameras --device cuda:0 --enable_pinocchio \
+  --cube cube_2 --cube-x 0.50 --cube-y -0.16 --cube-z &lt;object_center_z&gt; \
+  --object-usd &lt;simready_or_ycb_usd&gt; \
+  --object-mass &lt;mass_kg&gt; \
+  --object-roll-deg &lt;roll&gt; --object-pitch-deg &lt;pitch&gt; --object-yaw-deg &lt;yaw&gt; \
+  --grasp-depth-x-offset &lt;depth_offset&gt; \
+  --approach-x-offset 0.0 \
+  --grasp-center-z-offset &lt;low_mid_or_high_offset&gt; \
+  --frames 144 --warmup-steps &lt;16_or_120&gt; \
+  --global-width 960 --global-height 540 \
+  --out-mp4 /workspace/host/out/isaaclab232/&lt;case&gt;/video.mp4 \
+  --summary /workspace/host/out/isaaclab232/&lt;case&gt;/summary.json \
+  --out-dir /workspace/host/out/isaaclab232/&lt;case&gt;/frames</code></pre>
+    <p>
+      对普通低重心姿态，<code>--warmup-steps 16</code> 通常够用；对 <code>Zlong</code> 这类高重心竖立姿态，建议先尝试 <code>120</code> 或更高。
+    </p>
+  </section>
+
+  <section>
+    <h2>7. Failure case 怎么看</h2>
+    <div class="failure">
+      <strong>不要把所有 failure 都当成坏资产。</strong>
+      cracker <code>Zthin_clamp_mid</code> 失败是合理的：该姿态要求夹住中等边，宽度超过 Dex1 有效开口。
+      这种 failure 说明实验没有 hidden attach 或吸附，反而是有效的几何约束检查。
+    </div>
+    <table>
+      <thead>
+        <tr><th>失败类型</th><th>表现</th><th>可能原因</th><th>建议</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>尺寸失败</td><td>夹爪包不住物体</td><td>夹持方向宽度超过 gripper aperture</td><td>换姿态、夹薄边，或换更大夹爪</td></tr>
+        <tr><td>稳定性失败</td><td>抓之前晃动、倒下、被轻碰后跑偏</td><td>高重心、底面小、settle 不够</td><td>增加 warmup，降低初始高度误差</td></tr>
+        <tr><td>质量失败</td><td>夹住但抬不起或滑落</td><td>质量偏重、夹爪力不足</td><td>明确空盒/满盒任务，必要时 override mass</td></tr>
+        <tr><td>摩擦失败</td><td>抬起时滑出</td><td>material 摩擦低、接触面积小</td><td>检查 physics material 或夹爪 effort</td></tr>
+        <tr><td>碰撞失败</td><td>视觉接触但物理距离异常</td><td>collider 与 visual mesh 不一致</td><td>检查 collider、bbox、contact offset</td></tr>
+        <tr><td>可达性失败</td><td>手臂姿态异常或到不了</td><td>桌面/物体位置不合适</td><td>先用 block baseline 排除资产因素</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>8. 复现顺序建议</h2>
+    <ol>
+      <li>先跑同尺寸 block baseline，确认轨迹、夹爪、IK 和接触逻辑可用。</li>
+      <li>再跑一个真实资产的单姿态 mid 抓取。</li>
+      <li>确认物体姿态后，再跑 <code>Zthin / Zmid / Zlong</code> 三姿态。</li>
+      <li>最后对每个姿态扩展 low / mid / high。</li>
+      <li>高重心姿态如果出现初始晃动，先加 warmup，不要急着调 grasp depth。</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>9. 后续可以自动化</h2>
+    <ul>
+      <li>把 18 case sweep 固化成脚本，避免手写批量命令。</li>
+      <li>自动读取 bbox，判断当前姿态的夹持宽度是否超过 gripper aperture。</li>
+      <li>自动检测 warmup 后物体速度和姿态变化，决定是否继续 settle。</li>
+      <li>自动生成 HTML report，嵌入关键帧、视频链接和 failure 分类。</li>
+      <li>把远程 YCB/SimReady USD 本地化，避免客户环境受网络或缓存影响。</li>
+    </ul>
+  </section>
+</main>
+</body>
+</html>

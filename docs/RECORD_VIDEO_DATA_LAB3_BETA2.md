@@ -13,6 +13,7 @@
 | Teleop 包 | 2.3.2 需要项目内维护 teleop patch | 3.0-beta2 里 `isaaclab_teleop` 和 `isaacteleop` 已在镜像/源码布局中可用 |
 | `record_demos.py` | 常显式传 `--teleop_device motion_controllers` | 对配置了 `env_cfg.isaac_teleop` 的任务，不要传 `--teleop_device`；脚本会自动走 IsaacTeleop 栈 |
 | CloudXR 启动 | 依赖旧版外部 runtime/服务 | `record_demos.py` 默认 `--cloudxr_env cloudxrjs --auto_launch_cloudxr`，可自动启动 runtime |
+| CloudXR.js client | 旧流程常依赖单独解压的 cloudxr-js client | 可用官方 hosted client，也可在 `IsaacTeleop/deps/cloudxr/webxr_client/` 本地 build 6.2.0 client |
 | GUI Start XR | GUI 里需要手动点 Start XR/AR | headless 录制不需要 GUI Start XR；脚本创建 IsaacTeleop device 时启动 XR/CloudXR session |
 | 输出目录 | 常用 `/workspace/host/out/...` | 继续使用 `/workspace/host/out/...`，但建议命名到 `out/isaaclab3/...` 下避免和 2.3.2 混淆 |
 
@@ -159,13 +160,184 @@ right_wrist_cam: (96, 256, 256, 3), uint8
 videos: demo_0_ego_cam.mp4, demo_0_left_wrist_cam.mp4, demo_0_right_wrist_cam.mp4
 ```
 
-## 5. 真实 Pico 录制命令
+## 5. Pico / CloudXR.js 实机前置准备
+
+这一节是实机 Pico 测试前的 host 侧准备。官方 Lab3 文档说明：Isaac Lab 3.0-beta2 里 `isaacteleop` 会随 `isaaclab_teleop` 自动安装，teleop 脚本启动时会自动启动 CloudXR runtime；Pico 4 Ultra / Quest 3 走 CloudXR.js WebXR client，Pico 4 Ultra 需要 HTTPS 模式。
+
+### 5.1 网络与防火墙
+
+先确认 Pico 和 Isaac Lab 工作站在同一个可互通网络里。不要使用禁止设备互访的访客 Wi-Fi 或企业隔离 WLAN；实机测试推荐独立 Wi-Fi 6 路由器。
+
+宿主机查看 IP：
+
+```bash
+hostname -I
+```
+
+防火墙至少开放 CloudXR.js Web client 需要的端口：
+
+```bash
+# CloudXR WebRTC signaling
+sudo ufw allow 49100/tcp
+
+# CloudXR media stream. 官方 Lab3 web-client 文档列出 47998/udp；
+# 如果现场网络/版本仍有媒体或输入问题，可临时放宽到 47998:48012/udp 对齐旧 2.3.2 经验。
+sudo ufw allow 47998/udp
+# sudo ufw allow 47998:48012/udp
+
+# CloudXR built-in WSS proxy, Pico HTTPS 模式会用到
+sudo ufw allow 48322/tcp
+
+# 本地自建 CloudXR.js HTTPS dev server，默认 webpack-dev-server 端口
+sudo ufw allow 8080/tcp
+```
+
+端口含义：
+
+| 端口 | 协议 | 用途 |
+| --- | --- | --- |
+| `49100` | TCP | CloudXR WebRTC signaling |
+| `47998` | UDP | CloudXR media stream；必要时可临时放宽 `47998:48012/udp` |
+| `48322` | TCP | CloudXR WSS proxy，自签证书需要在 Pico 浏览器接受 |
+| `8080` | TCP | 本地 CloudXR.js HTTPS dev server |
+
+### 5.2 CloudXR.js client 选择
+
+有两种方式。
+
+方式 A：使用官方 hosted client。官方 Lab3 beta2 文档给的 Pico / Quest URL 是：
+
+```text
+https://nvidia.github.io/IsaacTeleop/client/release-1.3.x
+```
+
+这个 URL 和 Isaac Lab 3.0-beta2 pin 的 `isaacteleop~=1.3.0` 对齐。优点是不用本地 build；缺点是不能改 client 代码，也依赖外网。
+
+方式 B：本地 build CloudXR.js client。这个更适合我们现在调 Pico motion controller、client UI、HTTPS 和缓存问题。
+
+宿主机执行：
+
+```bash
+cd /home/yujie/workspace/yujie/iProject/customer/VeOV/pico/from_yanzi/cloudxr-runtime-blueprint/INTERNAL_examples/isaac-lab-teleop/IsaacTeleop
+
+# 读取 CXR_WEB_SDK_VERSION=6.2.0
+source deps/cloudxr/.env.default
+export CXR_WEB_SDK_VERSION
+
+# 如果 deps/cloudxr/nvidia-cloudxr-6.2.0.tgz 已存在，会跳过下载。
+# 如果不存在，脚本会尝试从 NGC 下载；也可以手动下载后放到 deps/cloudxr/。
+bash scripts/download_cloudxr_sdk.sh
+
+test -f deps/cloudxr/nvidia-cloudxr-${CXR_WEB_SDK_VERSION}.tgz
+```
+
+安装并启动 HTTPS dev server：
+
+```bash
+cd deps/cloudxr/webxr_client
+npm install
+npm run dev-server:https
+```
+
+启动后 Pico 浏览器访问：
+
+```text
+https://<host-ip>:8080
+```
+
+第一次访问会看到自签证书警告，选择继续访问。这个证书只对应 `8080` 的本地 Web client 页面；CloudXR WSS proxy 的 `48322` 证书需要在连接 CloudXR 时另外接受。
+
+### 5.3 Lab3 容器准备
+
+从宿主机进入 `IsaacLab3/` 启动本地 overlay 容器：
+
+```bash
+cd /home/yujie/workspace/yujie/iProject/customer/VeOV/pico/from_yanzi/cloudxr-runtime-blueprint/INTERNAL_examples/isaac-lab-teleop/IsaacLab3
+bash docker/teleop_dev.sh start
+bash docker/teleop_dev.sh enter
+cd /workspace/isaaclab
+```
+
+如果遇到 extension registry/cache 权限错误，例如写 `/root/.local/share/ov/data/exts` 失败，通常是旧 root 容器留下的 volume 或 bind mount 权限不匹配。Lab3 beta2 容器按 uid/gid 1000 运行，处理方式是清理对应 named volume，或把宿主机缓存/输出目录 `chown -R 1000:1000` 后再启动。
+
+## 6. Pico 实机 Step-by-Step 启动顺序
+
+推荐实际测试时开三个终端。
+
+### 终端 A：CloudXR.js Web client
+
+如果使用本地 client：
+
+```bash
+cd /home/yujie/workspace/yujie/iProject/customer/VeOV/pico/from_yanzi/cloudxr-runtime-blueprint/INTERNAL_examples/isaac-lab-teleop/IsaacTeleop/deps/cloudxr/webxr_client
+npm run dev-server:https
+```
+
+如果使用官方 hosted client，这个终端不需要。
+
+### 终端 B：Lab3 容器
+
+```bash
+cd /home/yujie/workspace/yujie/iProject/customer/VeOV/pico/from_yanzi/cloudxr-runtime-blueprint/INTERNAL_examples/isaac-lab-teleop/IsaacLab3
+bash docker/teleop_dev.sh start
+bash docker/teleop_dev.sh enter
+cd /workspace/isaaclab
+```
+
+快速确认 teleop 包：
+
+```bash
+./isaaclab.sh -p - <<PY
+import isaaclab_teleop
+import isaacteleop
+print("isaaclab_teleop", isaaclab_teleop.__file__)
+print("isaacteleop", isaacteleop.__file__)
+PY
+```
+
+### 终端 C：启动真实 Pico 录制任务
+
+在容器内 `/workspace/isaaclab` 运行第 7 节对应任务命令。实机 Pico 建议显式加：
+
+```text
+--xr --headless --cloudxr_env cloudxrjs
+```
+
+含相机任务再加：
+
+```text
+--enable_cameras --rendering_mode balanced
+```
+
+Lab3 的区别是：`--cloudxr_env cloudxrjs` 会解析到镜像/源码内置的 CloudXR.js env profile，`--auto_launch_cloudxr` 默认开启，所以 `record_demos.py` 会在 IsaacTeleop session 启动时自动启动 CloudXR runtime 和 WSS proxy。不需要像 2.3.2 那样单独启动 runtime 容器。
+
+### Pico 端操作
+
+1. 戴上 Pico，打开浏览器。
+2. 访问本地 client：`https://<host-ip>:8080`；或官方 client：`https://nvidia.github.io/IsaacTeleop/client/release-1.3.x`。
+3. 在 client 的 Server IP 输入 Isaac Lab 工作站 IP。
+4. 如果页面提示接受 WSS proxy 证书，打开 `https://<host-ip>:48322/`，选择继续访问，看到证书接受页后回到 client。
+5. 点击 Connect。
+6. 连接后用 client 的 Start / Play / Reset 开始遥操作。
+7. 对任务四/五，左右 Pico motion controller 分别控制左右 wrist，左右 trigger 分别控制左右 Dex1 gripper。
+
+GUI 模式和 headless 的区别：GUI 模式下官方流程需要在 XR panel 里选择 OpenXR 并点击 Start XR；headless `record_demos.py --xr --headless` 会在 IsaacTeleop session 中自动启用 XR/CloudXR，不需要手动点 Start XR。
+
+### 实机调试常见问题
+
+- Pico 打不开 `https://<host-ip>:8080`：检查 `npm run dev-server:https` 是否还在运行、`8080/tcp` 是否开放、Pico 和 host 是否能互通。
+- 连接时卡在证书：手动访问 `https://<host-ip>:48322/` 接受 WSS proxy 自签证书。
+- 能连接但没有控制：确认任务命令有 `--xr`，并且没有传 `--teleop_device motion_controllers`。Lab3 对配置了 `env_cfg.isaac_teleop` 的任务应让脚本自动走 IsaacTeleop pipeline。
+- 能操控但没有 HDF5 成功样本：`record_demos.py` 只会在 success 连续满足 `--num_success_steps` 后导出有效 demo。调 pipeline 时这是正常现象。
+- 含相机任务卡顿：先用 `--rendering_mode balanced`，只录 RGB；确认不要额外打开高质量渲染或 depth observation。
+
+## 7. 真实 Pico 录制命令
 
 真实 Pico 录制统一使用 `record_demos.py`。对配置了 `env_cfg.isaac_teleop` 的任务，**不要传** `--teleop_device motion_controllers`。如果传了，Lab3 脚本会强制走 legacy `teleop_devices` 路径，反而绕开新的 IsaacTeleop pipeline。
 
 默认情况下：
 
-- `--cloudxr_env cloudxrjs` 已是默认值；适合 Quest/Pico WebXR client。
+- `--cloudxr_env cloudxrjs` 适合 Quest/Pico WebXR client。
 - `--auto_launch_cloudxr` 已是默认值；脚本会自动启动 CloudXR runtime。
 - 没有 Pico / 不想启动 CloudXR 时，才加 `--cloudxr_env none --no-auto_launch_cloudxr`。
 - 含相机任务加 `--enable_cameras`，推荐 `--rendering_mode balanced`。
@@ -177,6 +349,7 @@ videos: demo_0_ego_cam.mp4, demo_0_left_wrist_cam.mp4, demo_0_right_wrist_cam.mp
 ./isaaclab.sh -p scripts/tools/record_demos.py \
   --task Isaac-PickPlace-GR1T2-Abs-v0 \
   --device cuda:0 --rendering_mode balanced \
+  --xr --headless --cloudxr_env cloudxrjs \
   --dataset_file /workspace/host/out/isaaclab3/task1_gr1t2_pickplace.hdf5 \
   --num_demos 0 --num_success_steps 10
 ```
@@ -187,6 +360,7 @@ videos: demo_0_ego_cam.mp4, demo_0_left_wrist_cam.mp4, demo_0_right_wrist_cam.mp
 ./isaaclab.sh -p scripts/tools/record_demos.py \
   --task Isaac-Stack-Cube-Galbot-Left-Arm-Gripper-Visuomotor-v0 \
   --device cuda:0 --enable_cameras --rendering_mode balanced \
+  --xr --headless --cloudxr_env cloudxrjs \
   --dataset_file /workspace/host/out/isaaclab3/task2_galbot_stack_cube_visuomotor.hdf5 \
   --num_demos 0 --num_success_steps 10
 ```
@@ -197,6 +371,7 @@ videos: demo_0_ego_cam.mp4, demo_0_left_wrist_cam.mp4, demo_0_right_wrist_cam.mp
 ./isaaclab.sh -p scripts/tools/record_demos.py \
   --task Isaac-Stack-Cube-Franka-IK-Abs-v0 \
   --device cuda:0 --rendering_mode balanced \
+  --xr --headless --cloudxr_env cloudxrjs \
   --dataset_file /workspace/host/out/isaaclab3/task3_franka_stack_cube_ik_abs.hdf5 \
   --num_demos 0 --num_success_steps 10
 ```
@@ -207,6 +382,7 @@ videos: demo_0_ego_cam.mp4, demo_0_left_wrist_cam.mp4, demo_0_right_wrist_cam.mp
 ./isaaclab.sh -p scripts/tools/record_demos.py \
   --task Isaac-G1-Dex1-FixedBase-StackCube-Reachability-v0 \
   --device cuda:0 --rendering_mode balanced \
+  --xr --headless --cloudxr_env cloudxrjs \
   --dataset_file /workspace/host/out/isaaclab3/task4_g1_dex1_stack_cube_reachability.hdf5 \
   --num_demos 0 --num_success_steps 10
 ```
@@ -217,6 +393,7 @@ videos: demo_0_ego_cam.mp4, demo_0_left_wrist_cam.mp4, demo_0_right_wrist_cam.mp
 ./isaaclab.sh -p scripts/tools/record_demos.py \
   --task Isaac-G1-Dex1-FixedBase-StackCube-Visuomotor-v0 \
   --device cuda:0 --enable_cameras --rendering_mode balanced \
+  --xr --headless --cloudxr_env cloudxrjs \
   --dataset_file /workspace/host/out/isaaclab3/task5_g1_dex1_stack_cube_visuomotor.hdf5 \
   --num_demos 0 --num_success_steps 10
 ```
@@ -231,26 +408,7 @@ videos: demo_0_ego_cam.mp4, demo_0_left_wrist_cam.mp4, demo_0_right_wrist_cam.mp
   --framerate 30
 ```
 
-## 6. Pico 实机连接步骤
-
-1. 启动 Lab3 容器：
-
-```bash
-cd /home/yujie/workspace/yujie/iProject/customer/VeOV/pico/from_yanzi/cloudxr-runtime-blueprint/INTERNAL_examples/isaac-lab-teleop/IsaacLab3
-bash docker/teleop_dev.sh start
-bash docker/teleop_dev.sh enter
-cd /workspace/isaaclab
-```
-
-2. 在容器内运行对应任务的 `record_demos.py` 命令。Lab3 会通过 `--cloudxr_env cloudxrjs` 默认路径启动 CloudXR runtime。
-
-3. 在 Pico 端打开对应 WebXR / CloudXR client 页面并连接服务器。GUI 模式文档里的 Start XR/AR 是 GUI session 入口；headless `record_demos.py` 不需要手动点这个按钮。
-
-4. Pico 连接后按客户端 START / reset 交互开始遥操作。对任务四/五，左右 motion controller 分别映射到左右腕部，左右 trigger 分别控制左右 Dex1 gripper。
-
-5. 达成 success 并保持 `--num_success_steps` 后，demo 才写入 HDF5。若只是调通实时控制但没有完成 success，文件可能没有成功 episode，这是预期行为。
-
-## 7. 当前 G1 Dex1 visuomotor 实现说明
+## 8. 当前 G1 Dex1 visuomotor 实现说明
 
 任务五新增内容：
 
@@ -260,7 +418,7 @@ cd /workspace/isaaclab
 
 相机数据只启用 `rgb`。之前 2.3.2/早期测试里出现过 headless 下 `DistanceToImagePlaneSD` 或 `LdrColorSD` empty buffer 的问题；当前任务五先关闭 depth，只保留 RGB，以降低 Lab3 headless SyntheticData 出错面。
 
-## 8. 后续可选项
+## 9. 后续可选项
 
 - 如果需要无 Pico 对任务一/二/三也做“动作语义级” mock 轨迹，应按任务各自 action layout 补专用 mock script；当前它们在 Lab3 registry 和真实 Pico 入口上已可用。
 - 任务五真实录制后可继续调三路相机 FOV、相机 offset、cube 初始位置、success termination 稳定时间。

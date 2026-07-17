@@ -221,6 +221,22 @@ https://nvidia.github.io/IsaacTeleop/client/v1.3.131/#/sim
 
 方式 B：self-host CloudXR.js client。这个更适合我们现在调 Pico motion controller、client UI、HTTPS 和缓存问题。它使用本地 `IsaacTeleop/deps/cloudxr/webxr_client/` 前端工程，依赖 NGC CloudXR.js SDK 包 `deps/cloudxr/nvidia-cloudxr-6.2.0.tgz`。
 
+如果本地还没有 SDK tgz，先准备 CloudXR.js 6.2.0：
+
+```bash
+cd /home/yujie/workspace/yujie/iProject/customer/VeOV/pico/from_yanzi/cloudxr-runtime-blueprint/INTERNAL_examples/isaac-lab-teleop/IsaacTeleop
+source deps/cloudxr/.env.default
+export CXR_WEB_SDK_VERSION
+bash scripts/download_cloudxr_sdk.sh
+test -f deps/cloudxr/nvidia-cloudxr-${CXR_WEB_SDK_VERSION}.tgz
+```
+
+也可以手动从 NGC CloudXR.js 6.2.0 下载 `nvidia-cloudxr-6.2.0.tgz`，放到 `IsaacTeleop/deps/cloudxr/` 下：
+
+```text
+https://catalog.ngc.nvidia.com/orgs/nvidia/-/resources/cloudxr-js/6.2.0
+```
+
 当前本地状态：`deps/cloudxr/nvidia-cloudxr-6.2.0.tgz`、`webxr_client/node_modules/` 和 `webxr_client/build/` 已存在。正常情况下后续 self-host 测试只需要按第 6 节“终端 A”启动 HTTPS dev server，然后 Pico 访问：
 
 ```text

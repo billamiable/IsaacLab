@@ -211,7 +211,7 @@ sudo ufw allow 8080/tcp
 https://nvidia.github.io/IsaacTeleop/client/release-1.3.x
 ```
 
-这个 URL 和 Isaac Lab 3.0-beta2 pin 的 `isaacteleop~=1.3.0` 对齐。优点是不用本地 build；缺点是不能改 client 代码，也依赖外网。
+这个 URL 和 Isaac Lab 3.0-beta2 pin 的 `isaacteleop~=1.3.0` 对齐。优点是不用本地 build，也不需要宿主机开放 `8080/tcp`；缺点是不能改 client 代码，也依赖外网。
 
 方式 B：本地 build CloudXR.js client。这个更适合我们现在调 Pico motion controller、client UI、HTTPS 和缓存问题。
 
@@ -247,6 +247,8 @@ https://<host-ip>:8080
 
 第一次访问会看到自签证书警告，选择继续访问。这个证书只对应 `8080` 的本地 Web client 页面；CloudXR WSS proxy 的 `48322` 证书需要在连接 CloudXR 时另外接受。
 
+当前本地状态：`deps/cloudxr/nvidia-cloudxr-6.2.0.tgz`、`webxr_client/node_modules/` 和 `webxr_client/build/` 已存在。正常情况下后续 self-host 测试只需要重新运行 `npm run dev-server:https`。
+
 ### 5.3 Lab3 容器准备
 
 从宿主机进入 `IsaacLab3/` 启动本地 overlay 容器：
@@ -266,14 +268,22 @@ cd /workspace/isaaclab
 
 ### 终端 A：CloudXR.js Web client
 
-如果使用本地 client：
+如果使用官方 hosted client，这个终端不需要。
+
+如果使用 self-host client，在宿主机运行：
 
 ```bash
 cd /home/yujie/workspace/yujie/iProject/customer/VeOV/pico/from_yanzi/cloudxr-runtime-blueprint/INTERNAL_examples/isaac-lab-teleop/IsaacTeleop/deps/cloudxr/webxr_client
 npm run dev-server:https
 ```
 
-如果使用官方 hosted client，这个终端不需要。
+Pico 浏览器访问：
+
+```text
+https://<host-ip>:8080
+```
+
+第一次访问时接受 `8080` 页面的自签证书。
 
 ### 终端 B：Lab3 容器
 
@@ -326,10 +336,26 @@ GUI 模式和 headless 的区别：GUI 模式下官方流程需要在 XR panel �
 ### 实机调试常见问题
 
 - Pico 打不开 `https://<host-ip>:8080`：检查 `npm run dev-server:https` 是否还在运行、`8080/tcp` 是否开放、Pico 和 host 是否能互通。
+- 使用官方 hosted client 时不需要 `8080/tcp`；使用 self-host client 时才需要。
 - 连接时卡在证书：手动访问 `https://<host-ip>:48322/` 接受 WSS proxy 自签证书。
 - 能连接但没有控制：确认任务命令有 `--xr`，并且没有传 `--teleop_device motion_controllers`。Lab3 对配置了 `env_cfg.isaac_teleop` 的任务应让脚本自动走 IsaacTeleop pipeline。
 - 能操控但没有 HDF5 成功样本：`record_demos.py` 只会在 success 连续满足 `--num_success_steps` 后导出有效 demo。调 pipeline 时这是正常现象。
 - 含相机任务卡顿：先用 `--rendering_mode balanced`，只录 RGB；确认不要额外打开高质量渲染或 depth observation。
+- CloudXR runtime 启动时报 `Port 49100 is already in use`：通常是上一次 session 残留的 `isaacteleop.cloudxr.runtime` 占住了 signaling 端口。先检查 `ss -ltnp | grep 49100`，然后在容器里清理：
+
+```bash
+docker exec isaac-lab-base-300b2 bash -lc '
+pkill -f "isaacteleop.cloudxr.runtime" || true
+rm -f /root/.cloudxr/run/ipc_cloudxr
+'
+```
+- XR 启动时报 `failed to find gpu foundation devices`：优先检查 `docker exec isaac-lab-base-300b2 nvidia-smi`。如果容器内出现 `Failed to initialize NVML: Unknown Error`，不是任务代码问题，重启 Lab3 容器：
+
+```bash
+cd /home/yujie/workspace/yujie/iProject/customer/VeOV/pico/from_yanzi/cloudxr-runtime-blueprint/INTERNAL_examples/isaac-lab-teleop/IsaacLab3
+bash docker/teleop_dev.sh stop
+bash docker/teleop_dev.sh start
+```
 
 ## 7. 真实 Pico 录制命令
 
@@ -397,6 +423,8 @@ GUI 模式和 headless 的区别：GUI 模式下官方流程需要在 XR panel �
   --dataset_file /workspace/host/out/isaaclab3/task5_g1_dex1_stack_cube_visuomotor.hdf5 \
   --num_demos 0 --num_success_steps 10
 ```
+
+当前实机状态：该命令已通过 Pico + 官方 hosted client 跑通，也已通过 Pico + self-host client 跑通。第一阶段验收目标是连通性、遥操作输入、三路相机和 HDF5 数据链路跑通；已知可优化项是 motion controller 和 gripper/wrist 的空间跟随仍有偏差，后续应放到 retargeter/calibration 调整里处理。
 
 录制完成后转视频：
 

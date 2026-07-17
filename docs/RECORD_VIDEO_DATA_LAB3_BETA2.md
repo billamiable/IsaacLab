@@ -205,49 +205,29 @@ sudo ufw allow 8080/tcp
 
 有两种方式。
 
-方式 A：使用官方 hosted client。官方 Lab3 beta2 文档给的 Pico / Quest URL 是：
+方式 A：使用官方 hosted client。入口 URL 是：
 
 ```text
-https://nvidia.github.io/IsaacTeleop/client/release-1.3.x
+https://nvidia.github.io/IsaacTeleop/client/
 ```
 
-这个 URL 和 Isaac Lab 3.0-beta2 pin 的 `isaacteleop~=1.3.0` 对齐。优点是不用本地 build，也不需要宿主机开放 `8080/tcp`；缺点是不能改 client 代码，也依赖外网。
+当前实测时该入口会跳转到：
 
-方式 B：本地 build CloudXR.js client。这个更适合我们现在调 Pico motion controller、client UI、HTTPS 和缓存问题。
-
-宿主机执行：
-
-```bash
-cd /home/yujie/workspace/yujie/iProject/customer/VeOV/pico/from_yanzi/cloudxr-runtime-blueprint/INTERNAL_examples/isaac-lab-teleop/IsaacTeleop
-
-# 读取 CXR_WEB_SDK_VERSION=6.2.0
-source deps/cloudxr/.env.default
-export CXR_WEB_SDK_VERSION
-
-# 如果 deps/cloudxr/nvidia-cloudxr-6.2.0.tgz 已存在，会跳过下载。
-# 如果不存在，脚本会尝试从 NGC 下载；也可以手动下载后放到 deps/cloudxr/。
-bash scripts/download_cloudxr_sdk.sh
-
-test -f deps/cloudxr/nvidia-cloudxr-${CXR_WEB_SDK_VERSION}.tgz
+```text
+https://nvidia.github.io/IsaacTeleop/client/v1.3.131/#/sim
 ```
 
-安装并启动 HTTPS dev server：
+本轮使用的 IsaacTeleop client 版本也是 `v1.3.131`。官方 hosted client 的优点是不用本地 build，也不需要宿主机开放 `8080/tcp`；缺点是不能改 client 代码，也依赖外网。
 
-```bash
-cd deps/cloudxr/webxr_client
-npm install
-npm run dev-server:https
-```
+方式 B：self-host CloudXR.js client。这个更适合我们现在调 Pico motion controller、client UI、HTTPS 和缓存问题。它使用本地 `IsaacTeleop/deps/cloudxr/webxr_client/` 前端工程，依赖 NGC CloudXR.js SDK 包 `deps/cloudxr/nvidia-cloudxr-6.2.0.tgz`。
 
-启动后 Pico 浏览器访问：
+当前本地状态：`deps/cloudxr/nvidia-cloudxr-6.2.0.tgz`、`webxr_client/node_modules/` 和 `webxr_client/build/` 已存在。正常情况下后续 self-host 测试只需要按第 6 节“终端 A”启动 HTTPS dev server，然后 Pico 访问：
 
 ```text
 https://<host-ip>:8080
 ```
 
 第一次访问会看到自签证书警告，选择继续访问。这个证书只对应 `8080` 的本地 Web client 页面；CloudXR WSS proxy 的 `48322` 证书需要在连接 CloudXR 时另外接受。
-
-当前本地状态：`deps/cloudxr/nvidia-cloudxr-6.2.0.tgz`、`webxr_client/node_modules/` 和 `webxr_client/build/` 已存在。正常情况下后续 self-host 测试只需要重新运行 `npm run dev-server:https`。
 
 ### 5.3 Lab3 容器准备
 
@@ -324,7 +304,7 @@ Lab3 的区别是：`--cloudxr_env cloudxrjs` 会解析到镜像/源码内置的
 ### Pico 端操作
 
 1. 戴上 Pico，打开浏览器。
-2. 访问本地 client：`https://<host-ip>:8080`；或官方 client：`https://nvidia.github.io/IsaacTeleop/client/release-1.3.x`。
+2. 访问本地 client：`https://<host-ip>:8080`；或官方 client：`https://nvidia.github.io/IsaacTeleop/client/`。
 3. 在 client 的 Server IP 输入 Isaac Lab 工作站 IP。
 4. 如果页面提示接受 WSS proxy 证书，打开 `https://<host-ip>:48322/`，选择继续访问，看到证书接受页后回到 client。
 5. 点击 Connect。
